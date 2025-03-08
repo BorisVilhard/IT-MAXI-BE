@@ -8,7 +8,6 @@ export const createOrUpdateProfile = async (req, res) => {
 		}
 		const userId = req.user.id;
 
-		// Extract text fields from req.body
 		const {
 			tagline,
 			industry,
@@ -19,11 +18,8 @@ export const createOrUpdateProfile = async (req, res) => {
 			email,
 			website,
 			github,
-			carousel, // JSON string of carousel items
+			carousel,
 		} = req.body;
-		console.log('req.body:', req.body);
-		console.log('req.files:', req.files);
-		// Extract uploaded files from req.files (set by Multer)
 		const avatarFile =
 			req.files && req.files.avatarUrl ? req.files.avatarUrl[0] : null;
 		const backgroundFile =
@@ -31,10 +27,8 @@ export const createOrUpdateProfile = async (req, res) => {
 		const carouselFiles =
 			req.files && req.files.carouselImages ? req.files.carouselImages : [];
 
-		// Find existing profile
 		const existingProfile = await Profile.findOne({ userId });
 
-		// Prepare profile data, preserving existing values if not updated
 		const profileData = {
 			userId,
 			tagline: tagline || (existingProfile ? existingProfile.tagline : ''),
@@ -48,7 +42,6 @@ export const createOrUpdateProfile = async (req, res) => {
 			github: github || (existingProfile ? existingProfile.github : ''),
 		};
 
-		// Process and store avatar image
 		if (avatarFile) {
 			const processedAvatar = await processImage(avatarFile.buffer);
 			profileData.avatar = {
@@ -59,7 +52,6 @@ export const createOrUpdateProfile = async (req, res) => {
 			profileData.avatar = existingProfile.avatar;
 		}
 
-		// Process and store background image
 		if (backgroundFile) {
 			const processedBg = await processImage(backgroundFile.buffer);
 			profileData.background = {
@@ -70,7 +62,6 @@ export const createOrUpdateProfile = async (req, res) => {
 			profileData.background = existingProfile.background;
 		}
 
-		// Process carousel items
 		const carouselData = carousel ? JSON.parse(carousel) : [];
 		const processedCarousel = [];
 		let fileIndex = 0;
@@ -82,7 +73,6 @@ export const createOrUpdateProfile = async (req, res) => {
 				content: item.content || '',
 			};
 
-			// Handle new carousel image uploads
 			if (item.src === 'new_file' && fileIndex < carouselFiles.length) {
 				const processedImage = await processImage(
 					carouselFiles[fileIndex].buffer
@@ -93,7 +83,6 @@ export const createOrUpdateProfile = async (req, res) => {
 				};
 				fileIndex++;
 			} else if (existingProfile && item._id) {
-				// Retain existing image if updating an existing item
 				const existingItem = existingProfile.carousel.id(item._id);
 				if (existingItem) {
 					newItem.image = existingItem.image;
@@ -104,7 +93,6 @@ export const createOrUpdateProfile = async (req, res) => {
 		}
 		profileData.carousel = processedCarousel;
 
-		// Create or update the profile in the database
 		let updatedProfile;
 		if (existingProfile) {
 			updatedProfile = await Profile.findOneAndUpdate(
@@ -116,18 +104,20 @@ export const createOrUpdateProfile = async (req, res) => {
 			updatedProfile = await new Profile(profileData).save();
 		}
 
-		// Construct response with image URLs
-		const baseUrl = 'http://localhost:3500/profile'; // Adjust base URL as needed
+		const baseUrl = 'http://localhost:3500/profile';
+		const timestamp = updatedProfile.updatedAt.getTime();
 		const responseProfile = {
 			...updatedProfile.toObject(),
-			avatarUrl: updatedProfile.avatar ? `${baseUrl}/${userId}/avatar` : null,
+			avatarUrl: updatedProfile.avatar
+				? `${baseUrl}/${userId}/avatar?v=${timestamp}`
+				: null,
 			backgroundUrl: updatedProfile.background
-				? `${baseUrl}/${userId}/background`
+				? `${baseUrl}/${userId}/background?v=${timestamp}`
 				: null,
 			carousel: updatedProfile.carousel.map((item) => ({
 				...item.toObject(),
 				imageUrl: item.image
-					? `${baseUrl}/${userId}/carousel/${item._id}/image`
+					? `${baseUrl}/${userId}/carousel/${item._id}/image?v=${timestamp}`
 					: null,
 			})),
 		};
@@ -146,15 +136,10 @@ export const createOrUpdateProfile = async (req, res) => {
 	}
 };
 
-/**
- * Retrieves a user's profile by userId, including image URLs.
- * Only the profile owner or an admin can access it.
- */
 export const getProfile = async (req, res) => {
 	try {
 		const { userId } = req.params;
 
-		// Authorization check
 		if (req.user.id !== userId && !req.user.roles.includes('admin')) {
 			return res.status(403).json({ message: 'Unauthorized' });
 		}
@@ -164,20 +149,23 @@ export const getProfile = async (req, res) => {
 			return res.status(404).json({ message: 'Profile not found' });
 		}
 
-		const baseUrl = 'http://localhost:3500/profile'; // Adjust base URL as needed
-		const profileData = profile.toObject();
-		profileData.avatarUrl = profile.avatar
-			? `${baseUrl}/${userId}/avatar`
-			: null;
-		profileData.backgroundUrl = profile.background
-			? `${baseUrl}/${userId}/background`
-			: null;
-		profileData.carousel = profile.carousel.map((item) => ({
-			...item.toObject(),
-			imageUrl: item.image
-				? `${baseUrl}/${userId}/carousel/${item._id}/image`
+		const baseUrl = 'http://localhost:3500/profile';
+		const timestamp = profile.updatedAt.getTime();
+		const profileData = {
+			...profile.toObject(),
+			avatarUrl: profile.avatar
+				? `${baseUrl}/${userId}/avatar?v=${timestamp}`
 				: null,
-		}));
+			backgroundUrl: profile.background
+				? `${baseUrl}/${userId}/background?v=${timestamp}`
+				: null,
+			carousel: profile.carousel.map((item) => ({
+				...item.toObject(),
+				imageUrl: item.image
+					? `${baseUrl}/${userId}/carousel/${item._id}/image?v=${timestamp}`
+					: null,
+			})),
+		};
 
 		res.status(200).json(profileData);
 	} catch (error) {
