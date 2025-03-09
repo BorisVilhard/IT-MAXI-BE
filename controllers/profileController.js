@@ -3,11 +3,13 @@ import { processImage } from '../utils/imageProcessor.js'; // Utility to process
 
 export const createOrUpdateProfile = async (req, res) => {
 	try {
+		// Check if the user is authenticated
 		if (!req.user || !req.user.id) {
 			return res.status(401).json({ message: 'Unauthorized' });
 		}
 		const userId = req.user.id;
 
+		// Extract data from request body
 		const {
 			tagline,
 			industry,
@@ -20,6 +22,8 @@ export const createOrUpdateProfile = async (req, res) => {
 			github,
 			carousel,
 		} = req.body;
+
+		// Extract uploaded files (avatar, background, and carousel images)
 		const avatarFile =
 			req.files && req.files.avatarUrl ? req.files.avatarUrl[0] : null;
 		const backgroundFile =
@@ -27,8 +31,10 @@ export const createOrUpdateProfile = async (req, res) => {
 		const carouselFiles =
 			req.files && req.files.carouselImages ? req.files.carouselImages : [];
 
+		// Check if a profile already exists for the user
 		const existingProfile = await Profile.findOne({ userId });
 
+		// Prepare profile data, preserving existing values if new ones aren't provided
 		const profileData = {
 			userId,
 			tagline: tagline || (existingProfile ? existingProfile.tagline : ''),
@@ -42,6 +48,7 @@ export const createOrUpdateProfile = async (req, res) => {
 			github: github || (existingProfile ? existingProfile.github : ''),
 		};
 
+		// Handle avatar image (new upload or preserve existing)
 		if (avatarFile) {
 			const processedAvatar = await processImage(avatarFile.buffer);
 			profileData.avatar = {
@@ -52,6 +59,7 @@ export const createOrUpdateProfile = async (req, res) => {
 			profileData.avatar = existingProfile.avatar;
 		}
 
+		// Handle background image (new upload or preserve existing)
 		if (backgroundFile) {
 			const processedBg = await processImage(backgroundFile.buffer);
 			profileData.background = {
@@ -62,6 +70,7 @@ export const createOrUpdateProfile = async (req, res) => {
 			profileData.background = existingProfile.background;
 		}
 
+		// Process carousel items
 		const carouselData = carousel ? JSON.parse(carousel) : [];
 		const processedCarousel = [];
 		let fileIndex = 0;
@@ -73,19 +82,42 @@ export const createOrUpdateProfile = async (req, res) => {
 				content: item.content || '',
 			};
 
-			if (item.src === 'new_file' && fileIndex < carouselFiles.length) {
-				const processedImage = await processImage(
-					carouselFiles[fileIndex].buffer
+			// Handle existing carousel items
+			if (item._id && existingProfile) {
+				const existingItem = existingProfile.carousel.find(
+					(existing) => existing._id.toString() === item._id
 				);
-				newItem.image = {
-					data: processedImage,
-					contentType: carouselFiles[fileIndex].mimetype,
-				};
-				fileIndex++;
-			} else if (existingProfile && item._id) {
-				const existingItem = existingProfile.carousel.id(item._id);
 				if (existingItem) {
-					newItem.image = existingItem.image;
+					newItem._id = existingItem._id;
+					if (item.src === 'new_file' && fileIndex < carouselFiles.length) {
+						// New image provided for existing item
+						const processedImage = await processImage(
+							carouselFiles[fileIndex].buffer
+						);
+						newItem.image = {
+							data: processedImage,
+							contentType: carouselFiles[fileIndex].mimetype,
+						};
+						fileIndex++;
+					} else {
+						// Preserve existing image
+						newItem.image = existingItem.image;
+					}
+				}
+			} else {
+				// Handle new carousel items
+				if (fileIndex < carouselFiles.length) {
+					const processedImage = await processImage(
+						carouselFiles[fileIndex].buffer
+					);
+					newItem.image = {
+						data: processedImage,
+						contentType: carouselFiles[fileIndex].mimetype,
+					};
+					fileIndex++;
+				} else {
+					// Error: new carousel items require an image
+					throw new Error('All carousel items must have an image');
 				}
 			}
 
@@ -93,6 +125,7 @@ export const createOrUpdateProfile = async (req, res) => {
 		}
 		profileData.carousel = processedCarousel;
 
+		// Save or update the profile in the database
 		let updatedProfile;
 		if (existingProfile) {
 			updatedProfile = await Profile.findOneAndUpdate(
@@ -104,6 +137,7 @@ export const createOrUpdateProfile = async (req, res) => {
 			updatedProfile = await new Profile(profileData).save();
 		}
 
+		// Construct response with image URLs
 		const baseUrl = 'http://localhost:3500/profile';
 		const timestamp = updatedProfile.updatedAt.getTime();
 		const responseProfile = {
@@ -122,6 +156,7 @@ export const createOrUpdateProfile = async (req, res) => {
 			})),
 		};
 
+		// Send success response
 		return res.status(200).json({
 			message: existingProfile
 				? 'Profile updated successfully'
@@ -129,6 +164,7 @@ export const createOrUpdateProfile = async (req, res) => {
 			profile: responseProfile,
 		});
 	} catch (error) {
+		// Handle errors
 		console.error('Error in createOrUpdateProfile:', error);
 		return res
 			.status(500)
