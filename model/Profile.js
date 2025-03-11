@@ -1,7 +1,5 @@
 import mongoose from 'mongoose';
 
-// Define the schema for courses
-
 const courseSchema = new mongoose.Schema(
 	{
 		videoSrc: { type: String, default: '' },
@@ -18,6 +16,13 @@ const courseSchema = new mongoose.Schema(
 			currency: { type: String, enum: ['EUR', 'USD', 'GBP'], default: 'EUR' },
 		},
 		websiteLink: { type: String, default: '' },
+		author: {
+			username: { type: String, required: true },
+			avatar: {
+				data: { type: Buffer },
+				contentType: { type: String },
+			},
+		},
 	},
 	{ timestamps: true }
 );
@@ -32,7 +37,6 @@ const carouselCardSchema = new mongoose.Schema({
 	},
 });
 
-// Main profile schema
 const profileSchema = new mongoose.Schema(
 	{
 		userId: {
@@ -53,16 +57,15 @@ const profileSchema = new mongoose.Schema(
 		location: { type: String, default: '' },
 		size: { type: String, default: '' },
 		bio: { type: String, default: '' },
-		carousel: [carouselCardSchema], // Array of carousel items
+		carousel: [carouselCardSchema],
 		phone: { type: String, default: '' },
 		email: { type: String, default: '' },
 		website: { type: String, default: '' },
 		github: { type: String, default: '' },
-		cv: { type: String, default: '' }, // Could be a URL or path; adjust if storing as binary
+		cv: { type: String, default: '' },
 		courses: [courseSchema],
 	},
 	{ timestamps: true }
 );
 
-// Export the Profile model
 export default mongoose.model('Profile', profileSchema);
