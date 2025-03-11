@@ -3,13 +3,11 @@ import { processImage } from '../utils/imageProcessor.js'; // Utility to process
 
 export const createOrUpdateProfile = async (req, res) => {
 	try {
-		// Check if the user is authenticated
 		if (!req.user || !req.user.id) {
 			return res.status(401).json({ message: 'Unauthorized' });
 		}
 		const userId = req.user.id;
 
-		// Extract data from request body
 		const {
 			tagline,
 			industry,
@@ -21,20 +19,22 @@ export const createOrUpdateProfile = async (req, res) => {
 			website,
 			github,
 			carousel,
+			courses,
 		} = req.body;
 
-		// Extract uploaded files (avatar, background, and carousel images)
-		const avatarFile =
-			req.files && req.files.avatarUrl ? req.files.avatarUrl[0] : null;
-		const backgroundFile =
-			req.files && req.files.backgroundUrl ? req.files.backgroundUrl[0] : null;
-		const carouselFiles =
-			req.files && req.files.carouselImages ? req.files.carouselImages : [];
+		const avatarFile = req.files?.avatarUrl ? req.files.avatarUrl[0] : null;
+		const backgroundFile = req.files?.backgroundUrl
+			? req.files.backgroundUrl[0]
+			: null;
+		const carouselFiles = req.files?.carouselImages
+			? req.files.carouselImages
+			: [];
+		const courseThumbnailFiles = req.files?.courseThumbnails
+			? req.files.courseThumbnails
+			: [];
 
-		// Check if a profile already exists for the user
 		const existingProfile = await Profile.findOne({ userId });
 
-		// Prepare profile data, preserving existing values if new ones aren't provided
 		const profileData = {
 			userId,
 			tagline: tagline || (existingProfile ? existingProfile.tagline : ''),
@@ -48,32 +48,29 @@ export const createOrUpdateProfile = async (req, res) => {
 			github: github || (existingProfile ? existingProfile.github : ''),
 		};
 
-		// Handle avatar image (new upload or preserve existing)
 		if (avatarFile) {
 			const processedAvatar = await processImage(avatarFile.buffer);
 			profileData.avatar = {
 				data: processedAvatar,
 				contentType: avatarFile.mimetype,
 			};
-		} else if (existingProfile && existingProfile.avatar) {
+		} else if (existingProfile?.avatar) {
 			profileData.avatar = existingProfile.avatar;
 		}
 
-		// Handle background image (new upload or preserve existing)
 		if (backgroundFile) {
 			const processedBg = await processImage(backgroundFile.buffer);
 			profileData.background = {
 				data: processedBg,
 				contentType: backgroundFile.mimetype,
 			};
-		} else if (existingProfile && existingProfile.background) {
+		} else if (existingProfile?.background) {
 			profileData.background = existingProfile.background;
 		}
 
-		// Process carousel items
 		const carouselData = carousel ? JSON.parse(carousel) : [];
 		const processedCarousel = [];
-		let fileIndex = 0;
+		let carouselFileIndex = 0;
 
 		for (const item of carouselData) {
 			const newItem = {
@@ -81,51 +78,87 @@ export const createOrUpdateProfile = async (req, res) => {
 				title: item.title || '',
 				content: item.content || '',
 			};
-
-			// Handle existing carousel items
 			if (item._id && existingProfile) {
 				const existingItem = existingProfile.carousel.find(
 					(existing) => existing._id.toString() === item._id
 				);
 				if (existingItem) {
 					newItem._id = existingItem._id;
-					if (item.src === 'new_file' && fileIndex < carouselFiles.length) {
-						// New image provided for existing item
+					if (
+						item.src === 'new_file' &&
+						carouselFileIndex < carouselFiles.length
+					) {
 						const processedImage = await processImage(
-							carouselFiles[fileIndex].buffer
+							carouselFiles[carouselFileIndex].buffer
 						);
 						newItem.image = {
 							data: processedImage,
-							contentType: carouselFiles[fileIndex].mimetype,
+							contentType: carouselFiles[carouselFileIndex].mimetype,
 						};
-						fileIndex++;
+						carouselFileIndex++;
 					} else {
-						// Preserve existing image
 						newItem.image = existingItem.image;
 					}
 				}
-			} else {
-				// Handle new carousel items
-				if (fileIndex < carouselFiles.length) {
-					const processedImage = await processImage(
-						carouselFiles[fileIndex].buffer
-					);
-					newItem.image = {
-						data: processedImage,
-						contentType: carouselFiles[fileIndex].mimetype,
-					};
-					fileIndex++;
-				} else {
-					// Error: new carousel items require an image
-					throw new Error('All carousel items must have an image');
-				}
+			} else if (carouselFileIndex < carouselFiles.length) {
+				const processedImage = await processImage(
+					carouselFiles[carouselFileIndex].buffer
+				);
+				newItem.image = {
+					data: processedImage,
+					contentType: carouselFiles[carouselFileIndex].mimetype,
+				};
+				carouselFileIndex++;
 			}
-
 			processedCarousel.push(newItem);
 		}
 		profileData.carousel = processedCarousel;
 
-		// Save or update the profile in the database
+		const coursesData = courses ? JSON.parse(courses) : [];
+		const processedCourses = [];
+		let courseFileIndex = 0;
+
+		for (const course of coursesData) {
+			const newCourse = {
+				title: course.title || '',
+				description: course.description || '',
+				linkToVideo: course.url || '',
+				tags: course.tags || [],
+				price: {
+					amount: course.priceAmount || 0,
+					currency: course.priceCurrency || 'EUR',
+				},
+				websiteLink: course.websiteLink || '',
+			};
+
+			if (course._id && existingProfile) {
+				const existingCourse = existingProfile.courses.find(
+					(c) => c._id.toString() === course._id
+				);
+				if (existingCourse) {
+					newCourse._id = existingCourse._id;
+					newCourse.thumbnail = existingCourse.thumbnail;
+				}
+			}
+
+			if (
+				course.thumbnail === 'new_file' &&
+				courseFileIndex < courseThumbnailFiles.length
+			) {
+				const processedThumbnail = await processImage(
+					courseThumbnailFiles[courseFileIndex].buffer
+				);
+				newCourse.thumbnail = {
+					data: processedThumbnail,
+					contentType: courseThumbnailFiles[courseFileIndex].mimetype,
+				};
+				courseFileIndex++;
+			}
+
+			processedCourses.push(newCourse);
+		}
+		profileData.courses = processedCourses;
+
 		let updatedProfile;
 		if (existingProfile) {
 			updatedProfile = await Profile.findOneAndUpdate(
@@ -137,7 +170,6 @@ export const createOrUpdateProfile = async (req, res) => {
 			updatedProfile = await new Profile(profileData).save();
 		}
 
-		// Construct response with image URLs
 		const baseUrl = 'http://localhost:3500/profile';
 		const timestamp = updatedProfile.updatedAt.getTime();
 		const responseProfile = {
@@ -154,9 +186,14 @@ export const createOrUpdateProfile = async (req, res) => {
 					? `${baseUrl}/${userId}/carousel/${item._id}/image?v=${timestamp}`
 					: null,
 			})),
+			courses: updatedProfile.courses.map((course) => ({
+				...course.toObject(),
+				thumbnailUrl: course.thumbnail
+					? `${baseUrl}/${userId}/courses/${course._id}/thumbnail?v=${timestamp}`
+					: null,
+			})),
 		};
 
-		// Send success response
 		return res.status(200).json({
 			message: existingProfile
 				? 'Profile updated successfully'
@@ -164,11 +201,30 @@ export const createOrUpdateProfile = async (req, res) => {
 			profile: responseProfile,
 		});
 	} catch (error) {
-		// Handle errors
 		console.error('Error in createOrUpdateProfile:', error);
 		return res
 			.status(500)
 			.json({ message: 'Server error', error: error.message });
+	}
+};
+
+// Add a new endpoint to get course thumbnail
+export const getCourseThumbnail = async (req, res) => {
+	try {
+		const { userId, courseId } = req.params;
+		const profile = await Profile.findOne({ userId });
+		if (!profile) {
+			return res.status(404).json({ message: 'Profile not found' });
+		}
+		const course = profile.courses.id(courseId);
+		if (!course || !course.thumbnail) {
+			return res.status(404).json({ message: 'Course thumbnail not found' });
+		}
+		res.set('Content-Type', course.thumbnail.contentType);
+		res.send(course.thumbnail.data);
+	} catch (error) {
+		console.error('Error in getCourseThumbnail:', error);
+		res.status(500).json({ message: 'Server error', error: error.message });
 	}
 };
 
@@ -201,6 +257,22 @@ export const getProfile = async (req, res) => {
 					? `${baseUrl}/${userId}/carousel/${item._id}/image?v=${timestamp}`
 					: null,
 			})),
+			courses: profile.courses.map((course) => {
+				const courseData = {
+					...course.toObject(),
+					thumbnailUrl: course.thumbnail
+						? `${baseUrl}/${userId}/courses/${course._id}/thumbnail?v=${timestamp}`
+						: null,
+				};
+				console.log(
+					`Course ID: ${
+						course._id
+					}, Thumbnail exists: ${!!course.thumbnail}, Thumbnail URL: ${
+						courseData.thumbnailUrl
+					}`
+				);
+				return courseData;
+			}),
 		};
 
 		res.status(200).json(profileData);

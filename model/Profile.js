@@ -1,24 +1,23 @@
 import mongoose from 'mongoose';
 
 // Define the schema for courses
+
 const courseSchema = new mongoose.Schema(
 	{
-		videoSrc: {
-			type: String,
-			default: '',
+		videoSrc: { type: String, default: '' },
+		title: { type: String, required: true },
+		description: { type: String, default: '' },
+		linkToVideo: { type: String, default: '' },
+		tags: [{ type: String }],
+		thumbnail: {
+			data: { type: Buffer },
+			contentType: { type: String },
 		},
-		title: {
-			type: String,
-			default: '',
+		price: {
+			amount: { type: Number, required: true },
+			currency: { type: String, enum: ['EUR', 'USD', 'GBP'], default: 'EUR' },
 		},
-		description: {
-			type: String,
-			default: '',
-		},
-		linkToVideo: {
-			type: String,
-			default: '',
-		},
+		websiteLink: { type: String, default: '' },
 	},
 	{ timestamps: true }
 );
@@ -28,8 +27,8 @@ const carouselCardSchema = new mongoose.Schema({
 	title: { type: String, default: '' },
 	content: { type: String, default: '' },
 	image: {
-		data: { type: Buffer }, // Binary image data
-		contentType: { type: String }, // MIME type (e.g., 'image/jpeg')
+		data: { type: Buffer },
+		contentType: { type: String },
 	},
 });
 
@@ -60,6 +59,7 @@ const profileSchema = new mongoose.Schema(
 		website: { type: String, default: '' },
 		github: { type: String, default: '' },
 		cv: { type: String, default: '' }, // Could be a URL or path; adjust if storing as binary
+		courses: [courseSchema],
 	},
 	{ timestamps: true }
 );
