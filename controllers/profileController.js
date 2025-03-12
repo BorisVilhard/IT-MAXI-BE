@@ -4,11 +4,13 @@ import mongoose from 'mongoose';
 
 export const createOrUpdateProfile = async (req, res) => {
 	try {
+		// Authentication check
 		if (!req.user || !req.user.id) {
 			return res.status(401).json({ message: 'Unauthorized' });
 		}
 		const userId = req.user.id;
 
+		// Extract form data
 		const {
 			tagline,
 			industry,
@@ -23,6 +25,7 @@ export const createOrUpdateProfile = async (req, res) => {
 			courses,
 		} = req.body;
 
+		// Extract uploaded files
 		const avatarFile = req.files?.avatarUrl ? req.files.avatarUrl[0] : null;
 		const backgroundFile = req.files?.backgroundUrl
 			? req.files.backgroundUrl[0]
@@ -34,12 +37,14 @@ export const createOrUpdateProfile = async (req, res) => {
 			? Object.values(req.files.courseThumbnails)
 			: [];
 
+		// Fetch existing profile and user
 		const existingProfile = await Profile.findOne({ userId });
 		const user = await mongoose.model('User').findById(userId);
 		if (!user) {
 			return res.status(404).json({ message: 'User not found' });
 		}
 
+		// Prepare profile data with defaults from existing profile
 		const profileData = {
 			userId,
 			tagline: tagline || (existingProfile ? existingProfile.tagline : ''),
@@ -53,6 +58,7 @@ export const createOrUpdateProfile = async (req, res) => {
 			github: github || (existingProfile ? existingProfile.github : ''),
 		};
 
+		// Process avatar image
 		if (avatarFile) {
 			const processedAvatar = await processImage(avatarFile.buffer);
 			if (!processedAvatar) throw new Error('Failed to process avatar');
@@ -64,6 +70,7 @@ export const createOrUpdateProfile = async (req, res) => {
 			profileData.avatar = existingProfile.avatar;
 		}
 
+		// Process background image
 		if (backgroundFile) {
 			const processedBg = await processImage(backgroundFile.buffer);
 			if (!processedBg) throw new Error('Failed to process background');
@@ -75,6 +82,7 @@ export const createOrUpdateProfile = async (req, res) => {
 			profileData.background = existingProfile.background;
 		}
 
+		// Process carousel data
 		const carouselData = carousel ? JSON.parse(carousel) : [];
 		const processedCarousel = [];
 		let carouselFileIndex = 0;
@@ -85,31 +93,23 @@ export const createOrUpdateProfile = async (req, res) => {
 				title: item.title || '',
 				content: item.content || '',
 			};
+
 			if (item._id && existingProfile) {
 				const existingItem = existingProfile.carousel.find(
 					(existing) => existing._id.toString() === item._id
 				);
 				if (existingItem) {
 					newItem._id = existingItem._id;
-					if (
-						item.src === 'new_file' &&
-						carouselFileIndex < carouselFiles.length
-					) {
-						const processedImage = await processImage(
-							carouselFiles[carouselFileIndex].buffer
-						);
-						if (!processedImage)
-							throw new Error(
-								`Failed to process carousel image ${carouselFileIndex}`
-							);
-						newItem.image = {
-							data: processedImage,
-							contentType: carouselFiles[carouselFileIndex].mimetype,
-						};
-						carouselFileIndex++;
-					} else {
-						newItem.image = existingItem.image;
-					}
+					newItem.image =
+						item.src === 'new_file' && carouselFileIndex < carouselFiles.length
+							? {
+									data: await processImage(
+										carouselFiles[carouselFileIndex].buffer
+									),
+									contentType: carouselFiles[carouselFileIndex].mimetype,
+							  }
+							: existingItem.image;
+					if (item.src === 'new_file') carouselFileIndex++;
 				}
 			} else if (
 				item.src === 'new_file' &&
@@ -118,10 +118,11 @@ export const createOrUpdateProfile = async (req, res) => {
 				const processedImage = await processImage(
 					carouselFiles[carouselFileIndex].buffer
 				);
-				if (!processedImage)
+				if (!processedImage) {
 					throw new Error(
 						`Failed to process carousel image ${carouselFileIndex}`
 					);
+				}
 				newItem.image = {
 					data: processedImage,
 					contentType: carouselFiles[carouselFileIndex].mimetype,
@@ -132,6 +133,7 @@ export const createOrUpdateProfile = async (req, res) => {
 		}
 		profileData.carousel = processedCarousel;
 
+		// Process courses data (mirroring carousel logic)
 		const coursesData = courses ? JSON.parse(courses) : [];
 		console.log('Incoming courses data:', JSON.stringify(coursesData, null, 2));
 		console.log(
@@ -142,15 +144,9 @@ export const createOrUpdateProfile = async (req, res) => {
 			}))
 		);
 		const processedCourses = [];
+		let courseFileIndex = 0;
 
-		for (let i = 0; i < coursesData.length; i++) {
-			const course = coursesData[i];
-			if (!course.author || !course.author.username) {
-				console.warn(
-					'Course missing author.username, setting default:',
-					course
-				);
-			}
+		for (const course of coursesData) {
 			const newCourse = {
 				title: course.title || '',
 				description: course.description || '',
@@ -163,59 +159,49 @@ export const createOrUpdateProfile = async (req, res) => {
 				websiteLink: course.websiteLink || '',
 				author: {
 					username: course.author?.username || user.username || 'Unknown',
-					avatar: course.author?.avatarUrl
-						? existingProfile?.avatar
-						: existingProfile?.avatar || null,
+					avatar:
+						course.author?.avatarUrl && existingProfile?.avatar
+							? existingProfile.avatar
+							: null,
 				},
 			};
 
+			// Mirror carousel image processing for thumbnails
 			if (course._id && existingProfile) {
 				const existingCourse = existingProfile.courses.find(
 					(c) => c._id.toString() === course._id
 				);
 				if (existingCourse) {
 					newCourse._id = existingCourse._id;
-					newCourse.thumbnail = existingCourse.thumbnail;
-					newCourse.author = existingCourse.author;
-				}
-			}
-
-			if (course.thumbnail === 'new_file' && i < courseThumbnailFiles.length) {
-				console.log(
-					`Processing thumbnail for course ${i}:`,
-					courseThumbnailFiles[i].originalname
-				);
-				const processedThumbnail = await processImage(
-					courseThumbnailFiles[i].buffer
-				);
-				if (!processedThumbnail) {
-					console.error(`Failed to process thumbnail for course ${i}`);
-					newCourse.thumbnail = null; // Explicitly set to null if processing fails
-				} else {
-					newCourse.thumbnail = {
-						data: processedThumbnail,
-						contentType: courseThumbnailFiles[i].mimetype || 'image/jpeg', // Default to jpeg if mimetype is missing
-					};
-					console.log(
-						`Thumbnail processed successfully for course ${i}, size:`,
-						processedThumbnail.length
-					);
+					newCourse.thumbnail =
+						course.thumbnail === 'new_file' &&
+						courseFileIndex < courseThumbnailFiles.length
+							? {
+									data: await processImage(
+										courseThumbnailFiles[courseFileIndex].buffer
+									),
+									contentType: courseThumbnailFiles[courseFileIndex].mimetype,
+							  }
+							: existingCourse.thumbnail;
+					if (course.thumbnail === 'new_file') courseFileIndex++;
 				}
 			} else if (
-				!newCourse.thumbnail &&
-				course.thumbnail &&
-				!course.thumbnail.startsWith('new_file')
+				course.thumbnail === 'new_file' &&
+				courseFileIndex < courseThumbnailFiles.length
 			) {
-				console.log(
-					`Preserving existing thumbnail for course ${i}:`,
-					course.thumbnail
+				const processedThumbnail = await processImage(
+					courseThumbnailFiles[courseFileIndex].buffer
 				);
-				newCourse.thumbnail = course.thumbnail; // Should be a URL or existing buffer
-			} else {
-				console.log(
-					`No thumbnail action for course ${i}, thumbnail field:`,
-					course.thumbnail
-				);
+				if (!processedThumbnail) {
+					throw new Error(
+						`Failed to process course thumbnail ${courseFileIndex}`
+					);
+				}
+				newCourse.thumbnail = {
+					data: processedThumbnail,
+					contentType: courseThumbnailFiles[courseFileIndex].mimetype,
+				};
+				courseFileIndex++;
 			}
 
 			console.log('Processed course:', JSON.stringify(newCourse, null, 2));
@@ -223,10 +209,26 @@ export const createOrUpdateProfile = async (req, res) => {
 		}
 		profileData.courses = processedCourses;
 
+		// Log final profile data before saving
 		console.log(
 			'Saving profile data with courses:',
-			JSON.stringify(profileData.courses, null, 2)
+			JSON.stringify(
+				profileData.courses.map((c) => ({
+					_id: c._id,
+					title: c.title,
+					thumbnail: c.thumbnail
+						? {
+								data: c.thumbnail.data?.length,
+								contentType: c.thumbnail.contentType,
+						  }
+						: null,
+				})),
+				null,
+				2
+			)
 		);
+
+		// Save or update profile in MongoDB
 		let updatedProfile;
 		if (existingProfile) {
 			updatedProfile = await Profile.findOneAndUpdate(
@@ -238,11 +240,26 @@ export const createOrUpdateProfile = async (req, res) => {
 			updatedProfile = await new Profile(profileData).save();
 		}
 
+		// Log saved profile data for verification
 		console.log(
 			'Saved profile courses:',
-			JSON.stringify(updatedProfile.courses, null, 2)
+			JSON.stringify(
+				updatedProfile.courses.map((c) => ({
+					_id: c._id,
+					title: c.title,
+					thumbnail: c.thumbnail
+						? {
+								data: c.thumbnail.data?.length,
+								contentType: c.thumbnail.contentType,
+						  }
+						: null,
+				})),
+				null,
+				2
+			)
 		);
 
+		// Prepare response with URLs
 		const baseUrl = 'http://localhost:3500/profile';
 		const timestamp = updatedProfile.updatedAt.getTime();
 		const responseProfile = {
@@ -290,19 +307,35 @@ export const createOrUpdateProfile = async (req, res) => {
 export const getCourseThumbnail = async (req, res) => {
 	try {
 		const { userId, courseId } = req.params;
+		console.log(
+			`Fetching thumbnail for userId: ${userId}, courseId: ${courseId}`
+		);
+
 		const profile = await Profile.findOne({ userId });
 		if (!profile) {
+			console.log(`Profile not found for userId: ${userId}`);
 			return res.status(404).json({ message: 'Profile not found' });
 		}
-		const course = profile.courses.id(courseId);
 		console.log(
-			`Fetching thumbnail for course ${courseId}:`,
-			course?.thumbnail || 'No thumbnail'
+			`Profile found: ${profile._id}, courses count: ${profile.courses.length}`
 		);
-		if (!course || !course.thumbnail || !course.thumbnail.data) {
+
+		const course = profile.courses.id(courseId);
+		if (!course) {
+			console.log(`Course ${courseId} not found in profile ${profile._id}`);
+			return res.status(404).json({ message: 'Course not found' });
+		}
+		console.log(`Course found: ${course.title}`);
+
+		if (!course.thumbnail || !course.thumbnail.data) {
+			console.log(`Thumbnail missing for course ${courseId}`);
 			return res.status(404).json({ message: 'Course thumbnail not found' });
 		}
-		res.set('Content-Type', course.thumbnail.contentType || 'image/jpeg'); // Default to jpeg if undefined
+		console.log(
+			`Thumbnail found: ${course.thumbnail.contentType}, size: ${course.thumbnail.data.length}`
+		);
+
+		res.set('Content-Type', course.thumbnail.contentType || 'image/jpeg');
 		res.send(course.thumbnail.data);
 	} catch (error) {
 		console.error('Error in getCourseThumbnail:', error);
