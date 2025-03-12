@@ -4,13 +4,11 @@ import mongoose from 'mongoose';
 
 export const createOrUpdateProfile = async (req, res) => {
 	try {
-		// Authentication check
 		if (!req.user || !req.user.id) {
 			return res.status(401).json({ message: 'Unauthorized' });
 		}
 		const userId = req.user.id;
 
-		// Extract form data
 		const {
 			tagline,
 			industry,
@@ -23,9 +21,11 @@ export const createOrUpdateProfile = async (req, res) => {
 			github,
 			carousel,
 			courses,
+			activeRole,
+			jobDescriptions,
+			jobPostVisibility,
 		} = req.body;
 
-		// Extract uploaded files
 		const avatarFile = req.files?.avatarUrl ? req.files.avatarUrl[0] : null;
 		const backgroundFile = req.files?.backgroundUrl
 			? req.files.backgroundUrl[0]
@@ -37,14 +37,12 @@ export const createOrUpdateProfile = async (req, res) => {
 			? Object.values(req.files.courseThumbnails)
 			: [];
 
-		// Fetch existing profile and user
 		const existingProfile = await Profile.findOne({ userId });
 		const user = await mongoose.model('User').findById(userId);
 		if (!user) {
 			return res.status(404).json({ message: 'User not found' });
 		}
 
-		// Prepare profile data with defaults from existing profile
 		const profileData = {
 			userId,
 			tagline: tagline || (existingProfile ? existingProfile.tagline : ''),
@@ -56,9 +54,17 @@ export const createOrUpdateProfile = async (req, res) => {
 			email: email || (existingProfile ? existingProfile.email : ''),
 			website: website || (existingProfile ? existingProfile.website : ''),
 			github: github || (existingProfile ? existingProfile.github : ''),
+			activeRole:
+				activeRole ||
+				(existingProfile ? existingProfile.activeRole : 'regular'),
+			jobPostVisibility:
+				jobPostVisibility !== undefined
+					? jobPostVisibility === 'true'
+					: existingProfile
+					? existingProfile.jobPostVisibility
+					: true,
 		};
 
-		// Process avatar image
 		if (avatarFile) {
 			const processedAvatar = await processImage(avatarFile.buffer);
 			if (!processedAvatar) throw new Error('Failed to process avatar');
@@ -70,7 +76,6 @@ export const createOrUpdateProfile = async (req, res) => {
 			profileData.avatar = existingProfile.avatar;
 		}
 
-		// Process background image
 		if (backgroundFile) {
 			const processedBg = await processImage(backgroundFile.buffer);
 			if (!processedBg) throw new Error('Failed to process background');
@@ -82,7 +87,6 @@ export const createOrUpdateProfile = async (req, res) => {
 			profileData.background = existingProfile.background;
 		}
 
-		// Process carousel data
 		const carouselData = carousel ? JSON.parse(carousel) : [];
 		const processedCarousel = [];
 		let carouselFileIndex = 0;
@@ -118,11 +122,10 @@ export const createOrUpdateProfile = async (req, res) => {
 				const processedImage = await processImage(
 					carouselFiles[carouselFileIndex].buffer
 				);
-				if (!processedImage) {
+				if (!processedImage)
 					throw new Error(
 						`Failed to process carousel image ${carouselFileIndex}`
 					);
-				}
 				newItem.image = {
 					data: processedImage,
 					contentType: carouselFiles[carouselFileIndex].mimetype,
@@ -133,16 +136,7 @@ export const createOrUpdateProfile = async (req, res) => {
 		}
 		profileData.carousel = processedCarousel;
 
-		// Process courses data (mirroring carousel logic)
 		const coursesData = courses ? JSON.parse(courses) : [];
-		console.log('Incoming courses data:', JSON.stringify(coursesData, null, 2));
-		console.log(
-			'courseThumbnailFiles:',
-			courseThumbnailFiles.map((f) => ({
-				originalname: f.originalname,
-				size: f.size,
-			}))
-		);
 		const processedCourses = [];
 		let courseFileIndex = 0;
 
@@ -159,14 +153,14 @@ export const createOrUpdateProfile = async (req, res) => {
 				websiteLink: course.websiteLink || '',
 				author: {
 					username: course.author?.username || user.username || 'Unknown',
-					avatar:
-						course.author?.avatarUrl && existingProfile?.avatar
-							? existingProfile.avatar
-							: null,
+					avatarUrl:
+						course.author?.avatarUrl ||
+						(existingProfile?.avatar
+							? `${req.protocol}://${req.get('host')}/profile/${userId}/avatar`
+							: null),
 				},
 			};
 
-			// Mirror carousel image processing for thumbnails
 			if (course._id && existingProfile) {
 				const existingCourse = existingProfile.courses.find(
 					(c) => c._id.toString() === course._id
@@ -192,43 +186,77 @@ export const createOrUpdateProfile = async (req, res) => {
 				const processedThumbnail = await processImage(
 					courseThumbnailFiles[courseFileIndex].buffer
 				);
-				if (!processedThumbnail) {
+				if (!processedThumbnail)
 					throw new Error(
 						`Failed to process course thumbnail ${courseFileIndex}`
 					);
-				}
 				newCourse.thumbnail = {
 					data: processedThumbnail,
 					contentType: courseThumbnailFiles[courseFileIndex].mimetype,
 				};
 				courseFileIndex++;
 			}
-
-			console.log('Processed course:', JSON.stringify(newCourse, null, 2));
 			processedCourses.push(newCourse);
 		}
 		profileData.courses = processedCourses;
 
-		// Log final profile data before saving
-		console.log(
-			'Saving profile data with courses:',
-			JSON.stringify(
-				profileData.courses.map((c) => ({
-					_id: c._id,
-					title: c.title,
-					thumbnail: c.thumbnail
-						? {
-								data: c.thumbnail.data?.length,
-								contentType: c.thumbnail.contentType,
-						  }
-						: null,
-				})),
-				null,
-				2
-			)
-		);
+		const jobDescriptionsData = jobDescriptions
+			? JSON.parse(jobDescriptions)
+			: [];
+		profileData.jobDescriptions = existingProfile?.jobDescriptions || [];
+		for (const job of jobDescriptionsData) {
+			const existingJob =
+				job._id && existingProfile
+					? existingProfile.jobDescriptions.find(
+							(j) => j._id.toString() === job._id
+					  )
+					: null;
+			const jobData = {
+				_id: existingJob ? existingJob._id : undefined,
+				position: job.position || (existingJob ? existingJob.position : ''),
+				wageRange: job.wageRange || (existingJob ? existingJob.wageRange : ''),
+				location: job.location || (existingJob ? existingJob.location : ''),
+				experienceLevel:
+					job.experienceLevel ||
+					(existingJob ? existingJob.experienceLevel : 'Junior'),
+				remoteOption:
+					job.remoteOption ||
+					(existingJob ? existingJob.remoteOption : 'Remote'),
+				description:
+					job.description || (existingJob ? existingJob.description : ''),
+				jobDescription:
+					job.jobDescription || (existingJob ? existingJob.jobDescription : ''),
+				datePosted: job.datePosted
+					? new Date(job.datePosted)
+					: existingJob
+					? existingJob.datePosted
+					: new Date(),
+				userId: job.userId || userId,
+				author: {
+					username: job.author?.username || user.username || 'Unknown',
+					avatarUrl:
+						job.author?.avatarUrl ||
+						(existingProfile?.avatar
+							? `${req.protocol}://${req.get('host')}/profile/${userId}/avatar`
+							: null),
+				},
+				postActivity:
+					job.postActivity !== undefined
+						? job.postActivity
+						: existingJob
+						? existingJob.postActivity
+						: false,
+			};
+			if (existingJob) {
+				const index = profileData.jobDescriptions.findIndex(
+					(j) => j._id.toString() === job._id
+				);
+				profileData.jobDescriptions[index] = jobData;
+			} else {
+				profileData.jobDescriptions.push(jobData);
+			}
+		}
 
-		// Save or update profile in MongoDB
 		let updatedProfile;
 		if (existingProfile) {
 			updatedProfile = await Profile.findOneAndUpdate(
@@ -240,27 +268,7 @@ export const createOrUpdateProfile = async (req, res) => {
 			updatedProfile = await new Profile(profileData).save();
 		}
 
-		// Log saved profile data for verification
-		console.log(
-			'Saved profile courses:',
-			JSON.stringify(
-				updatedProfile.courses.map((c) => ({
-					_id: c._id,
-					title: c.title,
-					thumbnail: c.thumbnail
-						? {
-								data: c.thumbnail.data?.length,
-								contentType: c.thumbnail.contentType,
-						  }
-						: null,
-				})),
-				null,
-				2
-			)
-		);
-
-		// Prepare response with URLs
-		const baseUrl = 'http://localhost:3500/profile';
+		const baseUrl = `${req.protocol}://${req.get('host')}/profile`;
 		const timestamp = updatedProfile.updatedAt.getTime();
 		const responseProfile = {
 			...updatedProfile.toObject(),
@@ -282,10 +290,15 @@ export const createOrUpdateProfile = async (req, res) => {
 					? `${baseUrl}/${userId}/courses/${course._id}/thumbnail?v=${timestamp}`
 					: null,
 				author: {
-					username: course.author.username,
-					avatarUrl: course.author.avatar
-						? `${baseUrl}/${userId}/avatar?v=${timestamp}`
-						: null,
+					username: course.author?.username || 'Unknown',
+					avatarUrl: course.author?.avatarUrl || null,
+				},
+			})),
+			jobDescriptions: updatedProfile.jobDescriptions.map((job) => ({
+				...job.toObject(),
+				author: {
+					username: job.author?.username || 'Unknown',
+					avatarUrl: job.author?.avatarUrl || null,
 				},
 			})),
 		};
@@ -304,46 +317,6 @@ export const createOrUpdateProfile = async (req, res) => {
 	}
 };
 
-export const getCourseThumbnail = async (req, res) => {
-	try {
-		const { userId, courseId } = req.params;
-		console.log(
-			`Fetching thumbnail for userId: ${userId}, courseId: ${courseId}`
-		);
-
-		const profile = await Profile.findOne({ userId });
-		if (!profile) {
-			console.log(`Profile not found for userId: ${userId}`);
-			return res.status(404).json({ message: 'Profile not found' });
-		}
-		console.log(
-			`Profile found: ${profile._id}, courses count: ${profile.courses.length}`
-		);
-
-		const course = profile.courses.id(courseId);
-		if (!course) {
-			console.log(`Course ${courseId} not found in profile ${profile._id}`);
-			return res.status(404).json({ message: 'Course not found' });
-		}
-		console.log(`Course found: ${course.title}`);
-
-		if (!course.thumbnail || !course.thumbnail.data) {
-			console.log(`Thumbnail missing for course ${courseId}`);
-			return res.status(404).json({ message: 'Course thumbnail not found' });
-		}
-		console.log(
-			`Thumbnail found: ${course.thumbnail.contentType}, size: ${course.thumbnail.data.length}`
-		);
-
-		res.set('Content-Type', course.thumbnail.contentType || 'image/jpeg');
-		res.send(course.thumbnail.data);
-	} catch (error) {
-		console.error('Error in getCourseThumbnail:', error);
-		res.status(500).json({ message: 'Server error', error: error.message });
-	}
-};
-
-// Other endpoints (getProfile, getAvatar, getBackground, getCarouselImage) remain unchanged
 export const getProfile = async (req, res) => {
 	try {
 		const { userId } = req.params;
@@ -354,7 +327,7 @@ export const getProfile = async (req, res) => {
 		if (!profile) {
 			return res.status(404).json({ message: 'Profile not found' });
 		}
-		const baseUrl = 'http://localhost:3500/profile';
+		const baseUrl = `${req.protocol}://${req.get('host')}/profile`;
 		const timestamp = profile.updatedAt.getTime();
 		const profileData = {
 			...profile.toObject(),
@@ -376,10 +349,15 @@ export const getProfile = async (req, res) => {
 					? `${baseUrl}/${userId}/courses/${course._id}/thumbnail?v=${timestamp}`
 					: null,
 				author: {
-					username: course.author.username,
-					avatarUrl: course.author.avatar
-						? `${baseUrl}/${userId}/avatar?v=${timestamp}`
-						: null,
+					username: course.author?.username || 'Unknown',
+					avatarUrl: course.author?.avatarUrl || null,
+				},
+			})),
+			jobDescriptions: profile.jobDescriptions.map((job) => ({
+				...job.toObject(),
+				author: {
+					username: job.author?.username || 'Unknown',
+					avatarUrl: job.author?.avatarUrl || null,
 				},
 			})),
 		};
@@ -390,6 +368,30 @@ export const getProfile = async (req, res) => {
 	}
 };
 
+export const getAllJobDescriptions = async (req, res) => {
+	try {
+		const profiles = await Profile.find({ jobPostVisibility: true }).populate(
+			'userId',
+			'username'
+		);
+		const jobDescriptions = profiles.flatMap((profile) =>
+			profile.jobDescriptions.map((job) => ({
+				...job.toObject(),
+				username: profile.userId?.username || 'Unknown',
+				author: {
+					username: job.author?.username || 'Unknown',
+					avatarUrl: job.author?.avatarUrl || null,
+				},
+			}))
+		);
+		res.status(200).json(jobDescriptions);
+	} catch (error) {
+		console.error('Error in getAllJobDescriptions:', error);
+		res.status(500).json({ message: 'Server error', error: error.message });
+	}
+};
+
+// Other endpoints remain unchanged
 export const getAvatar = async (req, res) => {
 	try {
 		const { userId } = req.params;
@@ -435,6 +437,25 @@ export const getCarouselImage = async (req, res) => {
 		res.send(carouselItem.image.data);
 	} catch (error) {
 		console.error('Error in getCarouselImage:', error);
+		res.status(500).json({ message: 'Server error', error: error.message });
+	}
+};
+
+export const getCourseThumbnail = async (req, res) => {
+	try {
+		const { userId, courseId } = req.params;
+		const profile = await Profile.findOne({ userId });
+		if (!profile) {
+			return res.status(404).json({ message: 'Profile not found' });
+		}
+		const course = profile.courses.id(courseId);
+		if (!course || !course.thumbnail) {
+			return res.status(404).json({ message: 'Course thumbnail not found' });
+		}
+		res.set('Content-Type', course.thumbnail.contentType || 'image/jpeg');
+		res.send(course.thumbnail.data);
+	} catch (error) {
+		console.error('Error in getCourseThumbnail:', error);
 		res.status(500).json({ message: 'Server error', error: error.message });
 	}
 };

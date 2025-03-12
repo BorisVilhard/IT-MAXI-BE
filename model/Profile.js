@@ -1,5 +1,32 @@
 import mongoose from 'mongoose';
 
+const authorSchema = new mongoose.Schema({
+	username: { type: String, required: true },
+	avatarUrl: { type: String },
+});
+
+const jobDescriptionSchema = new mongoose.Schema({
+	position: { type: String, required: true },
+	wageRange: { type: String, required: true },
+	location: { type: String, required: true },
+	experienceLevel: {
+		type: String,
+		enum: ['Junior', 'Medior', 'Senior'],
+		required: true,
+	},
+	remoteOption: {
+		type: String,
+		enum: ['Remote', 'Hybrid', 'On-site'],
+		required: true,
+	},
+	description: { type: String },
+	jobDescription: { type: String },
+	datePosted: { type: Date, default: Date.now },
+	userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+	author: authorSchema,
+	postActivity: { type: Boolean, default: false },
+});
+
 const courseSchema = new mongoose.Schema(
 	{
 		videoSrc: { type: String, default: '' },
@@ -16,13 +43,7 @@ const courseSchema = new mongoose.Schema(
 			currency: { type: String, enum: ['EUR', 'USD', 'GBP'], default: 'EUR' },
 		},
 		websiteLink: { type: String, default: '' },
-		author: {
-			username: { type: String, required: true },
-			avatar: {
-				data: { type: Buffer },
-				contentType: { type: String },
-			},
-		},
+		author: authorSchema,
 	},
 	{ timestamps: true }
 );
@@ -64,6 +85,13 @@ const profileSchema = new mongoose.Schema(
 		github: { type: String, default: '' },
 		cv: { type: String, default: '' },
 		courses: [courseSchema],
+		activeRole: {
+			type: String,
+			enum: ['regular', 'course_creator', 'company'],
+			default: 'regular',
+		},
+		jobDescriptions: [jobDescriptionSchema],
+		jobPostVisibility: { type: Boolean, default: true },
 	},
 	{ timestamps: true }
 );

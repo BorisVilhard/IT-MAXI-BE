@@ -8,6 +8,7 @@ import {
 	getBackground,
 	getCarouselImage,
 	getCourseThumbnail,
+	getAllJobDescriptions,
 } from '../controllers/profileController.js';
 
 const router = express.Router();
@@ -24,5 +25,6 @@ router.get('/:userId/avatar', getAvatar);
 router.get('/:userId/background', getBackground);
 router.get('/:userId/carousel/:carouselId/image', getCarouselImage);
 router.get('/:userId/courses/:courseId/thumbnail', getCourseThumbnail);
+router.get('/job-descriptions', getAllJobDescriptions);
 
 export default router;
