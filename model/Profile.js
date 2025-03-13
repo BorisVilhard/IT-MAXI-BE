@@ -25,6 +25,13 @@ const jobDescriptionSchema = new mongoose.Schema({
 	userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
 	author: authorSchema,
 	postActivity: { type: Boolean, default: false },
+	roleType: {
+		// Added roleType field
+		type: String,
+		enum: ['regular', 'company'],
+		required: true,
+		default: 'regular',
+	},
 });
 
 const courseSchema = new mongoose.Schema(

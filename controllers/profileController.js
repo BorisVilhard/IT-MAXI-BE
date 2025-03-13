@@ -246,6 +246,13 @@ export const createOrUpdateProfile = async (req, res) => {
 						: existingJob
 						? existingJob.postActivity
 						: false,
+				roleType:
+					job.roleType ||
+					(existingJob
+						? existingJob.roleType
+						: activeRole === 'company'
+						? 'company'
+						: 'regular'),
 			};
 			if (existingJob) {
 				const index = profileData.jobDescriptions.findIndex(
@@ -368,7 +375,6 @@ export const getProfile = async (req, res) => {
 	}
 };
 
-// Other endpoints remain unchanged
 export const getAvatar = async (req, res) => {
 	try {
 		const { userId } = req.params;
@@ -437,25 +443,36 @@ export const getCourseThumbnail = async (req, res) => {
 	}
 };
 
+// Updated to handle separate lists for regular and company roles
 export const getAllJobDescriptions = async (req, res) => {
 	try {
 		const page = parseInt(req.query.page) || 1;
 		const limit = parseInt(req.query.limit) || 10;
+		const roleType = req.query.roleType; // 'regular' or 'company'
 		const skip = (page - 1) * limit;
 
-		const profiles = await Profile.find({ jobPostVisibility: true })
+		// Build query based on visibility and roleType
+		let query = { jobPostVisibility: true };
+		if (roleType) {
+			query['jobDescriptions.roleType'] = roleType;
+		}
+
+		const profiles = await Profile.find(query)
 			.populate('userId', 'username')
 			.lean();
 
 		const allJobDescriptions = profiles.flatMap((profile) =>
-			profile.jobDescriptions.map((job) => ({
-				...job,
-				username: profile.userId?.username || 'Unknown',
-				author: {
-					username: job.author?.username || 'Unknown',
-					avatarUrl: job.author?.avatarUrl || null,
-				},
-			}))
+			profile.jobDescriptions
+				.filter((job) => !roleType || job.roleType === roleType)
+				.map((job) => ({
+					...job,
+					username: profile.userId?.username || 'Unknown',
+					author: {
+						username: job.author?.username || 'Unknown',
+						avatarUrl: job.author?.avatarUrl || null,
+					},
+					profileActiveRole: profile.activeRole,
+				}))
 		);
 
 		const total = allJobDescriptions.length;
@@ -469,6 +486,53 @@ export const getAllJobDescriptions = async (req, res) => {
 		});
 	} catch (error) {
 		console.error('Error in getAllJobDescriptions:', error);
+		res.status(500).json({ message: 'Server error', error: error.message });
+	}
+};
+
+export const getJobsByRoleType = async (req, res) => {
+	try {
+		const { roleType } = req.params;
+		const page = parseInt(req.query.page) || 1;
+		const limit = parseInt(req.query.limit) || 10;
+		const skip = (page - 1) * limit;
+
+		if (!['regular', 'company'].includes(roleType)) {
+			return res.status(400).json({ message: 'Invalid role type' });
+		}
+
+		const profiles = await Profile.find({
+			jobPostVisibility: true,
+			'jobDescriptions.roleType': roleType,
+		})
+			.populate('userId', 'username')
+			.lean();
+
+		const jobDescriptions = profiles.flatMap((profile) =>
+			profile.jobDescriptions
+				.filter((job) => job.roleType === roleType)
+				.map((job) => ({
+					...job,
+					username: profile.userId?.username || 'Unknown',
+					author: {
+						username: job.author?.username || 'Unknown',
+						avatarUrl: job.author?.avatarUrl || null,
+					},
+					profileActiveRole: profile.activeRole,
+				}))
+		);
+
+		const total = jobDescriptions.length;
+		const paginatedJobs = jobDescriptions.slice(skip, skip + limit);
+
+		res.status(200).json({
+			jobs: paginatedJobs,
+			total,
+			currentPage: page,
+			totalPages: Math.ceil(total / limit),
+		});
+	} catch (error) {
+		console.error('Error in getJobsByRoleType:', error);
 		res.status(500).json({ message: 'Server error', error: error.message });
 	}
 };

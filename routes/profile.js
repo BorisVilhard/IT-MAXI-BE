@@ -1,15 +1,16 @@
-import multer from 'multer';
 import express from 'express';
-import verifyJWT from '../middleware/verifyJWT.js';
 import {
+	getAllJobDescriptions,
+	getJobsByRoleType,
 	createOrUpdateProfile,
 	getProfile,
 	getAvatar,
 	getBackground,
 	getCarouselImage,
 	getCourseThumbnail,
-	getAllJobDescriptions,
 } from '../controllers/profileController.js';
+import verifyJWT from '../middleware/verifyJWT.js';
+import multer from 'multer';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() }).fields([
@@ -25,6 +26,5 @@ router.get('/:userId/avatar', getAvatar);
 router.get('/:userId/background', getBackground);
 router.get('/:userId/carousel/:carouselId/image', getCarouselImage);
 router.get('/:userId/courses/:courseId/thumbnail', getCourseThumbnail);
-router.get('/job-descriptions', getAllJobDescriptions);
 
 export default router;
