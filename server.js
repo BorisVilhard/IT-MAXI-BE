@@ -20,6 +20,7 @@ import logoutRoutes from './routes/logout.js';
 import userRoutes from './api/users.js';
 import authRoutes from './routes/auth.js';
 import profileRoutes from './routes/profile.js';
+import listRoute from './routes/list.js';
 
 // Import necessary modules
 import express from 'express';
@@ -56,7 +57,7 @@ app.use('/auth', authRoutes);
 app.use('/register', registerRoutes);
 app.use('/refresh', refreshRoutes);
 app.use('/logout', logoutRoutes);
-
+app.use('/list', listRoute);
 // Protected routes (require JWT verification)
 app.use('/users', verifyJWT, userRoutes); // JWT applied only to /users
 

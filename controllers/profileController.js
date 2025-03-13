@@ -368,29 +368,6 @@ export const getProfile = async (req, res) => {
 	}
 };
 
-export const getAllJobDescriptions = async (req, res) => {
-	try {
-		const profiles = await Profile.find({ jobPostVisibility: true }).populate(
-			'userId',
-			'username'
-		);
-		const jobDescriptions = profiles.flatMap((profile) =>
-			profile.jobDescriptions.map((job) => ({
-				...job.toObject(),
-				username: profile.userId?.username || 'Unknown',
-				author: {
-					username: job.author?.username || 'Unknown',
-					avatarUrl: job.author?.avatarUrl || null,
-				},
-			}))
-		);
-		res.status(200).json(jobDescriptions);
-	} catch (error) {
-		console.error('Error in getAllJobDescriptions:', error);
-		res.status(500).json({ message: 'Server error', error: error.message });
-	}
-};
-
 // Other endpoints remain unchanged
 export const getAvatar = async (req, res) => {
 	try {
@@ -456,6 +433,42 @@ export const getCourseThumbnail = async (req, res) => {
 		res.send(course.thumbnail.data);
 	} catch (error) {
 		console.error('Error in getCourseThumbnail:', error);
+		res.status(500).json({ message: 'Server error', error: error.message });
+	}
+};
+
+export const getAllJobDescriptions = async (req, res) => {
+	try {
+		const page = parseInt(req.query.page) || 1;
+		const limit = parseInt(req.query.limit) || 10;
+		const skip = (page - 1) * limit;
+
+		const profiles = await Profile.find({ jobPostVisibility: true })
+			.populate('userId', 'username')
+			.lean();
+
+		const allJobDescriptions = profiles.flatMap((profile) =>
+			profile.jobDescriptions.map((job) => ({
+				...job,
+				username: profile.userId?.username || 'Unknown',
+				author: {
+					username: job.author?.username || 'Unknown',
+					avatarUrl: job.author?.avatarUrl || null,
+				},
+			}))
+		);
+
+		const total = allJobDescriptions.length;
+		const paginatedJobs = allJobDescriptions.slice(skip, skip + limit);
+
+		res.status(200).json({
+			jobs: paginatedJobs,
+			total,
+			currentPage: page,
+			totalPages: Math.ceil(total / limit),
+		});
+	} catch (error) {
+		console.error('Error in getAllJobDescriptions:', error);
 		res.status(500).json({ message: 'Server error', error: error.message });
 	}
 };
