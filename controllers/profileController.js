@@ -2,6 +2,20 @@ import Profile from '../model/Profile.js';
 import { processImage } from '../utils/imageProcessor.js';
 import mongoose from 'mongoose';
 
+// Simple in-memory cache
+const imageCache = new Map(); // Key: string (e.g., "avatar:userId"), Value: { data, contentType, timestamp }
+const CACHE_TTL = 3600 * 1000; // 1 hour in milliseconds
+
+// Clear outdated cache entries every minute (optional)
+setInterval(() => {
+	const now = Date.now();
+	for (const [key, { timestamp }] of imageCache) {
+		if (now - timestamp > CACHE_TTL) {
+			imageCache.delete(key);
+		}
+	}
+}, 60000);
+
 export const createOrUpdateProfile = async (req, res) => {
 	try {
 		if (!req.user || !req.user.id) {
@@ -72,6 +86,7 @@ export const createOrUpdateProfile = async (req, res) => {
 				data: processedAvatar,
 				contentType: avatarFile.mimetype,
 			};
+			imageCache.delete(`avatar:${userId}`);
 		} else if (existingProfile?.avatar) {
 			profileData.avatar = existingProfile.avatar;
 		}
@@ -83,6 +98,7 @@ export const createOrUpdateProfile = async (req, res) => {
 				data: processedBg,
 				contentType: backgroundFile.mimetype,
 			};
+			imageCache.delete(`background:${userId}`);
 		} else if (existingProfile?.background) {
 			profileData.background = existingProfile.background;
 		}
@@ -113,7 +129,10 @@ export const createOrUpdateProfile = async (req, res) => {
 									contentType: carouselFiles[carouselFileIndex].mimetype,
 							  }
 							: existingItem.image;
-					if (item.src === 'new_file') carouselFileIndex++;
+					if (item.src === 'new_file') {
+						imageCache.delete(`carousel:${userId}:${existingItem._id}`);
+						carouselFileIndex++;
+					}
 				}
 			} else if (
 				item.src === 'new_file' &&
@@ -177,7 +196,10 @@ export const createOrUpdateProfile = async (req, res) => {
 									contentType: courseThumbnailFiles[courseFileIndex].mimetype,
 							  }
 							: existingCourse.thumbnail;
-					if (course.thumbnail === 'new_file') courseFileIndex++;
+					if (course.thumbnail === 'new_file') {
+						imageCache.delete(`course:${userId}:${existingCourse._id}`);
+						courseFileIndex++;
+					}
 				}
 			} else if (
 				course.thumbnail === 'new_file' &&
@@ -378,11 +400,28 @@ export const getProfile = async (req, res) => {
 export const getAvatar = async (req, res) => {
 	try {
 		const { userId } = req.params;
-		const profile = await Profile.findOne({ userId });
+		const cacheKey = `avatar:${userId}`;
+
+		if (imageCache.has(cacheKey)) {
+			const { data, contentType } = imageCache.get(cacheKey);
+			res.set('Content-Type', contentType);
+			res.set('Cache-Control', 'public, max-age=3600');
+			return res.send(data);
+		}
+
+		const profile = await Profile.findOne({ userId }).select('avatar');
 		if (!profile || !profile.avatar) {
 			return res.status(404).json({ message: 'Avatar not found' });
 		}
+
+		imageCache.set(cacheKey, {
+			data: profile.avatar.data,
+			contentType: profile.avatar.contentType,
+			timestamp: Date.now(),
+		});
+
 		res.set('Content-Type', profile.avatar.contentType);
+		res.set('Cache-Control', 'public, max-age=3600');
 		res.send(profile.avatar.data);
 	} catch (error) {
 		console.error('Error in getAvatar:', error);
@@ -393,11 +432,28 @@ export const getAvatar = async (req, res) => {
 export const getBackground = async (req, res) => {
 	try {
 		const { userId } = req.params;
-		const profile = await Profile.findOne({ userId });
+		const cacheKey = `background:${userId}`;
+
+		if (imageCache.has(cacheKey)) {
+			const { data, contentType } = imageCache.get(cacheKey);
+			res.set('Content-Type', contentType);
+			res.set('Cache-Control', 'public, max-age=3600');
+			return res.send(data);
+		}
+
+		const profile = await Profile.findOne({ userId }).select('background');
 		if (!profile || !profile.background) {
 			return res.status(404).json({ message: 'Background image not found' });
 		}
+
+		imageCache.set(cacheKey, {
+			data: profile.background.data,
+			contentType: profile.background.contentType,
+			timestamp: Date.now(),
+		});
+
 		res.set('Content-Type', profile.background.contentType);
+		res.set('Cache-Control', 'public, max-age=3600');
 		res.send(profile.background.data);
 	} catch (error) {
 		console.error('Error in getBackground:', error);
@@ -408,7 +464,16 @@ export const getBackground = async (req, res) => {
 export const getCarouselImage = async (req, res) => {
 	try {
 		const { userId, carouselId } = req.params;
-		const profile = await Profile.findOne({ userId });
+		const cacheKey = `carousel:${userId}:${carouselId}`;
+
+		if (imageCache.has(cacheKey)) {
+			const { data, contentType } = imageCache.get(cacheKey);
+			res.set('Content-Type', contentType);
+			res.set('Cache-Control', 'public, max-age=3600');
+			return res.send(data);
+		}
+
+		const profile = await Profile.findOne({ userId }).select('carousel');
 		if (!profile) {
 			return res.status(404).json({ message: 'Profile not found' });
 		}
@@ -416,7 +481,15 @@ export const getCarouselImage = async (req, res) => {
 		if (!carouselItem || !carouselItem.image) {
 			return res.status(404).json({ message: 'Carousel image not found' });
 		}
+
+		imageCache.set(cacheKey, {
+			data: carouselItem.image.data,
+			contentType: carouselItem.image.contentType,
+			timestamp: Date.now(),
+		});
+
 		res.set('Content-Type', carouselItem.image.contentType);
+		res.set('Cache-Control', 'public, max-age=3600');
 		res.send(carouselItem.image.data);
 	} catch (error) {
 		console.error('Error in getCarouselImage:', error);
@@ -427,7 +500,16 @@ export const getCarouselImage = async (req, res) => {
 export const getCourseThumbnail = async (req, res) => {
 	try {
 		const { userId, courseId } = req.params;
-		const profile = await Profile.findOne({ userId });
+		const cacheKey = `course:${userId}:${courseId}`;
+
+		if (imageCache.has(cacheKey)) {
+			const { data, contentType } = imageCache.get(cacheKey);
+			res.set('Content-Type', contentType);
+			res.set('Cache-Control', 'public, max-age=3600');
+			return res.send(data);
+		}
+
+		const profile = await Profile.findOne({ userId }).select('courses');
 		if (!profile) {
 			return res.status(404).json({ message: 'Profile not found' });
 		}
@@ -435,7 +517,15 @@ export const getCourseThumbnail = async (req, res) => {
 		if (!course || !course.thumbnail) {
 			return res.status(404).json({ message: 'Course thumbnail not found' });
 		}
+
+		imageCache.set(cacheKey, {
+			data: course.thumbnail.data,
+			contentType: course.thumbnail.contentType || 'image/jpeg',
+			timestamp: Date.now(),
+		});
+
 		res.set('Content-Type', course.thumbnail.contentType || 'image/jpeg');
+		res.set('Cache-Control', 'public, max-age=3600');
 		res.send(course.thumbnail.data);
 	} catch (error) {
 		console.error('Error in getCourseThumbnail:', error);
@@ -443,15 +533,13 @@ export const getCourseThumbnail = async (req, res) => {
 	}
 };
 
-// Updated to handle separate lists for regular and company roles
 export const getAllJobDescriptions = async (req, res) => {
 	try {
 		const page = parseInt(req.query.page) || 1;
 		const limit = parseInt(req.query.limit) || 10;
-		const roleType = req.query.roleType; // 'regular' or 'company'
+		const roleType = req.query.roleType;
 		const skip = (page - 1) * limit;
 
-		// Build query based on visibility and roleType
 		let query = { jobPostVisibility: true };
 		if (roleType) {
 			query['jobDescriptions.roleType'] = roleType;
