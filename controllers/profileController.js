@@ -500,8 +500,12 @@ export const getCarouselImage = async (req, res) => {
 export const getCourseThumbnail = async (req, res) => {
 	try {
 		const { userId, courseId } = req.params;
-		const cacheKey = `course:${userId}:${courseId}`;
 
+		if (!mongoose.Types.ObjectId.isValid(userId)) {
+			return res.status(400).json({ message: 'Invalid user ID format' });
+		}
+
+		const cacheKey = `course:${userId}:${courseId}`;
 		if (imageCache.has(cacheKey)) {
 			const { data, contentType } = imageCache.get(cacheKey);
 			res.set('Content-Type', contentType);
@@ -513,6 +517,7 @@ export const getCourseThumbnail = async (req, res) => {
 		if (!profile) {
 			return res.status(404).json({ message: 'Profile not found' });
 		}
+
 		const course = profile.courses.id(courseId);
 		if (!course || !course.thumbnail) {
 			return res.status(404).json({ message: 'Course thumbnail not found' });
@@ -529,6 +534,9 @@ export const getCourseThumbnail = async (req, res) => {
 		res.send(course.thumbnail.data);
 	} catch (error) {
 		console.error('Error in getCourseThumbnail:', error);
+		if (error.name === 'CastError') {
+			return res.status(400).json({ message: 'Invalid user ID or course ID' });
+		}
 		res.status(500).json({ message: 'Server error', error: error.message });
 	}
 };
@@ -622,5 +630,68 @@ export const getJobsByRoleType = async (req, res) => {
 	} catch (error) {
 		console.error('Error in getJobsByRoleType:', error);
 		res.status(500).json({ message: 'Server error', error: error.message });
+	}
+};
+
+export const getAllCourses = async (req, res) => {
+	try {
+		const page = parseInt(req.query.page) || 1;
+		const limit = parseInt(req.query.limit) || 10;
+		const skip = (page - 1) * limit;
+
+		const profiles = await Profile.find({})
+			.populate('userId', 'username')
+			.lean();
+
+		const allCourses = profiles.flatMap((profile) => {
+			const profileUserId =
+				profile.userId?._id?.toString() || profile.userId.toString();
+			return profile.courses.map((course) => ({
+				_id: course._id.toString(),
+				title: course.title,
+				description: course.description || '',
+				linkToVideo: course.linkToVideo || '',
+				tags: course.tags || [],
+				thumbnailUrl: course.thumbnail
+					? `${req.protocol}://${req.get(
+							'host'
+					  )}/profile/${profileUserId}/courses/${course._id}/thumbnail`
+					: null,
+				price: {
+					amount: course.price.amount,
+					currency: course.price.currency,
+				},
+				websiteLink: course.websiteLink || '',
+				author: {
+					username:
+						course.author?.username || profile.userId?.username || 'Unknown',
+					avatarUrl:
+						course.author?.avatarUrl ||
+						(profile.avatar
+							? `${req.protocol}://${req.get(
+									'host'
+							  )}/profile/${profileUserId}/avatar`
+							: null),
+				},
+				createdAt: course.createdAt,
+				updatedAt: course.updatedAt,
+			}));
+		});
+
+		const total = allCourses.length;
+		const paginatedCourses = allCourses.slice(skip, skip + limit);
+
+		res.status(200).json({
+			courses: paginatedCourses,
+			total,
+			currentPage: page,
+			totalPages: Math.ceil(total / limit),
+		});
+	} catch (error) {
+		console.error('Error in getAllCourses:', error);
+		res.status(500).json({
+			message: 'Server error',
+			error: error.message,
+		});
 	}
 };
