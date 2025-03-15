@@ -1,4 +1,5 @@
 import Profile from '../model/Profile.js';
+import Interaction from '../model/Interaction.js';
 import { processImage } from '../utils/imageProcessor.js';
 import mongoose from 'mongoose';
 
@@ -6,7 +7,6 @@ import mongoose from 'mongoose';
 const imageCache = new Map(); // Key: string (e.g., "avatar:userId"), Value: { data, contentType, timestamp }
 const CACHE_TTL = 3600 * 1000; // 1 hour in milliseconds
 
-// Clear outdated cache entries every minute (optional)
 setInterval(() => {
 	const now = Date.now();
 	for (const [key, { timestamp }] of imageCache) {
@@ -693,5 +693,159 @@ export const getAllCourses = async (req, res) => {
 			message: 'Server error',
 			error: error.message,
 		});
+	}
+};
+
+export const createInteraction = async (req, res) => {
+	try {
+		const { jobId, message } = req.body;
+		const senderId = req.user.id;
+
+		const profile = await Profile.findOne({ 'jobDescriptions._id': jobId });
+		if (!profile) {
+			return res.status(404).json({ message: 'Job post not found' });
+		}
+
+		const job = profile.jobDescriptions.id(jobId);
+		if (!job) {
+			return res.status(404).json({ message: 'Job post not found' });
+		}
+
+		const recipientId = profile.userId;
+
+		const sender = await mongoose.model('User').findById(senderId);
+		const recipient = await mongoose.model('User').findById(recipientId);
+		if (!sender || !recipient) {
+			return res.status(404).json({ message: 'User not found' });
+		}
+
+		const senderRole = sender.roles[0];
+		const recipientRole = recipient.roles[0];
+
+		const interaction = new Interaction({
+			jobId,
+			senderId,
+			recipientId,
+			message,
+		});
+
+		await interaction.save();
+
+		res
+			.status(201)
+			.json({ message: 'Interaction created successfully', interaction });
+	} catch (error) {
+		console.error('Error in createInteraction:', error);
+		res.status(500).json({ message: 'Server error', error: error.message });
+	}
+};
+
+export const getInteractions = async (req, res) => {
+	try {
+		// Check if req.user is defined (set by authentication middleware)
+		if (!req.user) {
+			return res
+				.status(401)
+				.json({ message: 'Unauthorized: No user data found' });
+		}
+
+		// Safely access userId from req.user
+		const userId = req.user.id;
+		if (!userId) {
+			return res
+				.status(401)
+				.json({ message: 'Unauthorized: User ID is missing' });
+		}
+
+		// Fetch interactions where the user is either the sender or recipient
+		const interactions = await Interaction.find({
+			$or: [{ senderId: userId }, { recipientId: userId }],
+		})
+			.populate('senderId', 'username email')
+			.populate('recipientId', 'username email')
+			.lean();
+
+		// Manually fetch job details and profile for avatar
+		const formattedInteractions = await Promise.all(
+			interactions.map(async (interaction) => {
+				// Find the Profile containing the jobId in its jobDescriptions array
+				const profile = await Profile.findOne({
+					'jobDescriptions._id': interaction.jobId,
+				}).lean();
+
+				// Extract the specific job subdocument
+				let job = null;
+				if (profile) {
+					job = profile.jobDescriptions.find(
+						(j) => j._id.toString() === interaction.jobId.toString()
+					);
+				}
+
+				// Fetch sender's profile for avatar
+				const senderProfile = await Profile.findOne({
+					userId: interaction.senderId._id,
+				}).lean();
+				const senderAvatarURL =
+					senderProfile && senderProfile.avatar
+						? `${req.protocol}://${req.get('host')}/profile/${
+								interaction.senderId._id
+						  }/avatar`
+						: '/default-avatar.png'; // Default avatar if not found
+
+				// Fetch recipient's profile for avatar
+				const recipientProfile = await Profile.findOne({
+					userId: interaction.recipientId._id,
+				}).lean();
+				const recipientAvatarURL =
+					recipientProfile && recipientProfile.avatar
+						? `${req.protocol}://${req.get('host')}/profile/${
+								interaction.recipientId._id
+						  }/avatar`
+						: '/default-avatar.png'; // Default avatar if not found
+
+				// Format sender and recipient with avatar URLs
+				const sender = interaction.senderId
+					? {
+							id: interaction.senderId._id.toString(),
+							username: interaction.senderId.username,
+							email: interaction.senderId.email,
+							avatarURL: senderAvatarURL,
+					  }
+					: null;
+
+				const recipient = interaction.recipientId
+					? {
+							id: interaction.recipientId._id.toString(),
+							username: interaction.recipientId.username,
+							email: interaction.recipientId.email,
+							avatarURL: recipientAvatarURL,
+					  }
+					: null;
+
+				// Return formatted interaction
+				return {
+					id: interaction._id.toString(),
+					job: job
+						? {
+								id: job._id.toString(),
+								position: job.position,
+								company: job.company,
+								description: job.description,
+						  }
+						: null,
+					sender,
+					recipient,
+					message: interaction.message,
+					timestamp: interaction.timestamp,
+					status: interaction.status,
+				};
+			})
+		);
+
+		// Return the formatted interactions
+		res.status(200).json({ interactions: formattedInteractions });
+	} catch (error) {
+		console.error('Error in getInteractions:', error);
+		res.status(500).json({ message: 'Server error', error: error.message });
 	}
 };
