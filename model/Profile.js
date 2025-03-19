@@ -90,7 +90,11 @@ const profileSchema = new mongoose.Schema(
 		email: { type: String, default: '' },
 		website: { type: String, default: '' },
 		github: { type: String, default: '' },
-		cv: { type: String, default: '' },
+		cv: {
+			data: { type: Buffer },
+			contentType: { type: String },
+			fileName: { type: String },
+		},
 		courses: [courseSchema],
 		activeRole: {
 			type: String,

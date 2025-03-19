@@ -1,7 +1,6 @@
 import express from 'express';
 import {
-	getAllJobDescriptions,
-	getJobsByRoleType,
+	getCV,
 	createOrUpdateProfile,
 	getProfile,
 	getAvatar,
@@ -18,6 +17,7 @@ const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() }).fields([
 	{ name: 'avatarUrl', maxCount: 1 },
 	{ name: 'backgroundUrl', maxCount: 1 },
+	{ name: 'cv', maxCount: 1 },
 	{ name: 'carouselImages', maxCount: 10 },
 	{ name: 'courseThumbnails', maxCount: 10 },
 ]);
@@ -26,6 +26,7 @@ router.post('/', verifyJWT, upload, createOrUpdateProfile);
 router.post('/interactions', verifyJWT, createInteraction);
 router.get('/interactions', verifyJWT, getInteractions);
 router.get('/:userId', verifyJWT, getProfile);
+router.get('/:userId/cv', verifyJWT, getCV);
 router.get('/:userId/avatar', getAvatar);
 router.get('/:userId/background', getBackground);
 router.get('/:userId/carousel/:carouselId/image', getCarouselImage);

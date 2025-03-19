@@ -2,6 +2,8 @@ import Profile from '../model/Profile.js';
 import Interaction from '../model/Interaction.js';
 import { processImage } from '../utils/imageProcessor.js';
 import mongoose from 'mongoose';
+import fs from 'fs/promises';
+import path from 'path';
 
 // Simple in-memory cache
 const imageCache = new Map(); // Key: string (e.g., "avatar:userId"), Value: { data, contentType, timestamp }
@@ -50,6 +52,7 @@ export const createOrUpdateProfile = async (req, res) => {
 		const courseThumbnailFiles = req.files?.courseThumbnails
 			? Object.values(req.files.courseThumbnails)
 			: [];
+		const cvFile = req.files?.cv ? req.files.cv[0] : null; // Extract CV file
 
 		const existingProfile = await Profile.findOne({ userId });
 		const user = await mongoose.model('User').findById(userId);
@@ -79,6 +82,7 @@ export const createOrUpdateProfile = async (req, res) => {
 					: true,
 		};
 
+		// Handle avatar upload
 		if (avatarFile) {
 			const processedAvatar = await processImage(avatarFile.buffer);
 			if (!processedAvatar) throw new Error('Failed to process avatar');
@@ -91,6 +95,7 @@ export const createOrUpdateProfile = async (req, res) => {
 			profileData.avatar = existingProfile.avatar;
 		}
 
+		// Handle background upload
 		if (backgroundFile) {
 			const processedBg = await processImage(backgroundFile.buffer);
 			if (!processedBg) throw new Error('Failed to process background');
@@ -103,6 +108,18 @@ export const createOrUpdateProfile = async (req, res) => {
 			profileData.background = existingProfile.background;
 		}
 
+		// Handle CV upload
+		if (cvFile) {
+			profileData.cv = {
+				data: cvFile.buffer, // Store the binary data directly
+				contentType: cvFile.mimetype,
+				fileName: cvFile.originalname, // Store the MIME type
+			};
+		} else if (existingProfile?.cv) {
+			profileData.cv = existingProfile.cv; // Retain existing CV if no new file
+		}
+
+		// Handle carousel
 		const carouselData = carousel ? JSON.parse(carousel) : [];
 		const processedCarousel = [];
 		let carouselFileIndex = 0;
@@ -155,6 +172,7 @@ export const createOrUpdateProfile = async (req, res) => {
 		}
 		profileData.carousel = processedCarousel;
 
+		// Handle courses
 		const coursesData = courses ? JSON.parse(courses) : [];
 		const processedCourses = [];
 		let courseFileIndex = 0;
@@ -222,6 +240,7 @@ export const createOrUpdateProfile = async (req, res) => {
 		}
 		profileData.courses = processedCourses;
 
+		// Handle job descriptions
 		const jobDescriptionsData = jobDescriptions
 			? JSON.parse(jobDescriptions)
 			: [];
@@ -286,6 +305,7 @@ export const createOrUpdateProfile = async (req, res) => {
 			}
 		}
 
+		// Save or update the profile
 		let updatedProfile;
 		if (existingProfile) {
 			updatedProfile = await Profile.findOneAndUpdate(
@@ -297,6 +317,7 @@ export const createOrUpdateProfile = async (req, res) => {
 			updatedProfile = await new Profile(profileData).save();
 		}
 
+		// Construct response with URLs
 		const baseUrl = `${req.protocol}://${req.get('host')}/profile`;
 		const timestamp = updatedProfile.updatedAt.getTime();
 		const responseProfile = {
@@ -307,6 +328,7 @@ export const createOrUpdateProfile = async (req, res) => {
 			backgroundUrl: updatedProfile.background
 				? `${baseUrl}/${userId}/background?v=${timestamp}`
 				: null,
+			cvUrl: updatedProfile.cv ? `${baseUrl}/${userId}/cv` : null, // Add CV URL
 			carousel: updatedProfile.carousel.map((item) => ({
 				...item.toObject(),
 				imageUrl: item.image
@@ -349,15 +371,26 @@ export const createOrUpdateProfile = async (req, res) => {
 export const getProfile = async (req, res) => {
 	try {
 		const { userId } = req.params;
+
+		// Check if the user is authorized (assuming req.user is set by authentication middleware)
 		if (req.user.id !== userId && !req.user.roles.includes('admin')) {
 			return res.status(403).json({ message: 'Unauthorized' });
 		}
-		const profile = await Profile.findOne({ userId });
+
+		// Fetch the profile from the database, excluding binary data
+		const profile = await Profile.findOne({ userId }).select(
+			'-cv.data -avatar.data -background.data -carousel.image.data -courses.thumbnail.data'
+		);
+
 		if (!profile) {
 			return res.status(404).json({ message: 'Profile not found' });
 		}
+
+		// Construct the base URL for media files
 		const baseUrl = `${req.protocol}://${req.get('host')}/profile`;
 		const timestamp = profile.updatedAt.getTime();
+
+		// Build the response data with URLs and CV file name
 		const profileData = {
 			...profile.toObject(),
 			avatarUrl: profile.avatar
@@ -366,6 +399,8 @@ export const getProfile = async (req, res) => {
 			backgroundUrl: profile.background
 				? `${baseUrl}/${userId}/background?v=${timestamp}`
 				: null,
+			cvUrl: profile.cv ? `${baseUrl}/${userId}/cv` : null,
+			cvFileName: profile.cv ? profile.cv.fileName : null,
 			carousel: profile.carousel.map((item) => ({
 				...item.toObject(),
 				imageUrl: item.image
@@ -390,6 +425,8 @@ export const getProfile = async (req, res) => {
 				},
 			})),
 		};
+
+		// Send the response
 		res.status(200).json(profileData);
 	} catch (error) {
 		console.error('Error in getProfile:', error);
@@ -847,5 +884,24 @@ export const getInteractions = async (req, res) => {
 	} catch (error) {
 		console.error('Error in getInteractions:', error);
 		res.status(500).json({ message: 'Server error', error: error.message });
+	}
+};
+
+export const getCV = async (req, res) => {
+	try {
+		const { userId } = req.params;
+		const profile = await Profile.findOne({ userId }).select('cv');
+
+		if (!profile || !profile.cv) {
+			return res.status(404).json({ message: 'CV not found' });
+		}
+
+		res.set('Content-Type', profile.cv.contentType);
+		res.send(profile.cv.data);
+	} catch (error) {
+		console.error('Error in getCV:', error);
+		return res
+			.status(500)
+			.json({ message: 'Server error', error: error.message });
 	}
 };
