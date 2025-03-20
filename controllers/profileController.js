@@ -20,11 +20,13 @@ setInterval(() => {
 
 export const createOrUpdateProfile = async (req, res) => {
 	try {
+		// Check for user authentication
 		if (!req.user || !req.user.id) {
 			return res.status(401).json({ message: 'Unauthorized' });
 		}
 		const userId = req.user.id;
 
+		// Extract data from request body
 		const {
 			tagline,
 			industry,
@@ -37,11 +39,12 @@ export const createOrUpdateProfile = async (req, res) => {
 			github,
 			carousel,
 			courses,
-			activeRole,
 			jobDescriptions,
 			jobPostVisibility,
+			publishedRoles, // e.g., { regular: true, course_creator: false, company: false }
 		} = req.body;
 
+		// Extract uploaded files
 		const avatarFile = req.files?.avatarUrl ? req.files.avatarUrl[0] : null;
 		const backgroundFile = req.files?.backgroundUrl
 			? req.files.backgroundUrl[0]
@@ -52,14 +55,16 @@ export const createOrUpdateProfile = async (req, res) => {
 		const courseThumbnailFiles = req.files?.courseThumbnails
 			? Object.values(req.files.courseThumbnails)
 			: [];
-		const cvFile = req.files?.cv ? req.files.cv[0] : null; // Extract CV file
+		const cvFile = req.files?.cv ? req.files.cv[0] : null;
 
+		// Fetch existing profile and user
 		const existingProfile = await Profile.findOne({ userId });
 		const user = await mongoose.model('User').findById(userId);
 		if (!user) {
 			return res.status(404).json({ message: 'User not found' });
 		}
 
+		// Build profile data object, merging with existing data if present
 		const profileData = {
 			userId,
 			tagline: tagline || (existingProfile ? existingProfile.tagline : ''),
@@ -71,15 +76,17 @@ export const createOrUpdateProfile = async (req, res) => {
 			email: email || (existingProfile ? existingProfile.email : ''),
 			website: website || (existingProfile ? existingProfile.website : ''),
 			github: github || (existingProfile ? existingProfile.github : ''),
-			activeRole:
-				activeRole ||
-				(existingProfile ? existingProfile.activeRole : 'regular'),
 			jobPostVisibility:
 				jobPostVisibility !== undefined
 					? jobPostVisibility === 'true'
 					: existingProfile
 					? existingProfile.jobPostVisibility
 					: true,
+			publishedRoles: publishedRoles
+				? JSON.parse(publishedRoles)
+				: existingProfile
+				? existingProfile.publishedRoles
+				: { regular: false, course_creator: false, company: false },
 		};
 
 		// Handle avatar upload
@@ -90,7 +97,7 @@ export const createOrUpdateProfile = async (req, res) => {
 				data: processedAvatar,
 				contentType: avatarFile.mimetype,
 			};
-			imageCache.delete(`avatar:${userId}`);
+			imageCache.delete(`avatar:${userId}`); // Clear cache (assumes imageCache exists)
 		} else if (existingProfile?.avatar) {
 			profileData.avatar = existingProfile.avatar;
 		}
@@ -111,15 +118,15 @@ export const createOrUpdateProfile = async (req, res) => {
 		// Handle CV upload
 		if (cvFile) {
 			profileData.cv = {
-				data: cvFile.buffer, // Store the binary data directly
+				data: cvFile.buffer,
 				contentType: cvFile.mimetype,
-				fileName: cvFile.originalname, // Store the MIME type
+				fileName: cvFile.originalname,
 			};
 		} else if (existingProfile?.cv) {
-			profileData.cv = existingProfile.cv; // Retain existing CV if no new file
+			profileData.cv = existingProfile.cv;
 		}
 
-		// Handle carousel
+		// Handle carousel data
 		const carouselData = carousel ? JSON.parse(carousel) : [];
 		const processedCarousel = [];
 		let carouselFileIndex = 0;
@@ -172,7 +179,7 @@ export const createOrUpdateProfile = async (req, res) => {
 		}
 		profileData.carousel = processedCarousel;
 
-		// Handle courses
+		// Handle courses data
 		const coursesData = courses ? JSON.parse(courses) : [];
 		const processedCourses = [];
 		let courseFileIndex = 0;
@@ -288,12 +295,7 @@ export const createOrUpdateProfile = async (req, res) => {
 						? existingJob.postActivity
 						: false,
 				roleType:
-					job.roleType ||
-					(existingJob
-						? existingJob.roleType
-						: activeRole === 'company'
-						? 'company'
-						: 'regular'),
+					job.roleType || (existingJob ? existingJob.roleType : 'regular'),
 			};
 			if (existingJob) {
 				const index = profileData.jobDescriptions.findIndex(
@@ -305,7 +307,7 @@ export const createOrUpdateProfile = async (req, res) => {
 			}
 		}
 
-		// Save or update the profile
+		// Save or update the profile in the database
 		let updatedProfile;
 		if (existingProfile) {
 			updatedProfile = await Profile.findOneAndUpdate(
@@ -317,7 +319,7 @@ export const createOrUpdateProfile = async (req, res) => {
 			updatedProfile = await new Profile(profileData).save();
 		}
 
-		// Construct response with URLs
+		// Construct response with media URLs
 		const baseUrl = `${req.protocol}://${req.get('host')}/profile`;
 		const timestamp = updatedProfile.updatedAt.getTime();
 		const responseProfile = {
@@ -328,7 +330,7 @@ export const createOrUpdateProfile = async (req, res) => {
 			backgroundUrl: updatedProfile.background
 				? `${baseUrl}/${userId}/background?v=${timestamp}`
 				: null,
-			cvUrl: updatedProfile.cv ? `${baseUrl}/${userId}/cv` : null, // Add CV URL
+			cvUrl: updatedProfile.cv ? `${baseUrl}/${userId}/cv` : null,
 			carousel: updatedProfile.carousel.map((item) => ({
 				...item.toObject(),
 				imageUrl: item.image
@@ -352,8 +354,10 @@ export const createOrUpdateProfile = async (req, res) => {
 					avatarUrl: job.author?.avatarUrl || null,
 				},
 			})),
+			publishedRoles: updatedProfile.publishedRoles,
 		};
 
+		// Send response
 		return res.status(200).json({
 			message: existingProfile
 				? 'Profile updated successfully'

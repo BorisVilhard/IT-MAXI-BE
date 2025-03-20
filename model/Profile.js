@@ -101,6 +101,11 @@ const profileSchema = new mongoose.Schema(
 			enum: ['regular', 'course_creator', 'company'],
 			default: 'regular',
 		},
+		publishedRoles: {
+			regular: { type: Boolean, default: false },
+			course_creator: { type: Boolean, default: false },
+			company: { type: Boolean, default: false },
+		},
 		jobDescriptions: [jobDescriptionSchema],
 		jobPostVisibility: { type: Boolean, default: true },
 	},
