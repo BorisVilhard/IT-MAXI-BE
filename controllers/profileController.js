@@ -376,27 +376,25 @@ export const getProfile = async (req, res) => {
 	try {
 		const { userId } = req.params;
 
-		// Check if the user is authorized (assuming req.user is set by authentication middleware)
-		if (req.user.id !== userId && !req.user.roles.includes('admin')) {
-			return res.status(403).json({ message: 'Unauthorized' });
-		}
-
-		// Fetch the profile from the database, excluding binary data
-		const profile = await Profile.findOne({ userId }).select(
-			'-cv.data -avatar.data -background.data -carousel.image.data -courses.thumbnail.data'
-		);
+		// Fetch the profile and populate userId with username
+		const profile = await Profile.findOne({ userId })
+			.populate('userId', 'username') // Populate username from User model
+			.select(
+				'-cv.data -avatar.data -background.data -carousel.image.data -courses.thumbnail.data'
+			);
 
 		if (!profile) {
 			return res.status(404).json({ message: 'Profile not found' });
 		}
 
-		// Construct the base URL for media files
+		// Construct base URL for media files
 		const baseUrl = `${req.protocol}://${req.get('host')}/profile`;
 		const timestamp = profile.updatedAt.getTime();
 
-		// Build the response data with URLs and CV file name
+		// Build the profileData object, including the username
 		const profileData = {
 			...profile.toObject(),
+			username: profile.userId.username, // Username from User model
 			avatarUrl: profile.avatar
 				? `${baseUrl}/${userId}/avatar?v=${timestamp}`
 				: null,

@@ -72,6 +72,7 @@ const profileSchema = new mongoose.Schema(
 			ref: 'User',
 			required: true,
 		},
+		author: [authorSchema],
 		avatar: {
 			data: { type: Buffer },
 			contentType: { type: String },

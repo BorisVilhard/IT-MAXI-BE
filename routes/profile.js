@@ -25,7 +25,7 @@ const upload = multer({ storage: multer.memoryStorage() }).fields([
 router.post('/', verifyJWT, upload, createOrUpdateProfile);
 router.post('/interactions', verifyJWT, createInteraction);
 router.get('/interactions', verifyJWT, getInteractions);
-router.get('/:userId', verifyJWT, getProfile);
+router.get('/:userId', getProfile);
 router.get('/:userId/cv', verifyJWT, getCV);
 router.get('/:userId/avatar', getAvatar);
 router.get('/:userId/background', getBackground);
