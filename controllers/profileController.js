@@ -18,33 +18,22 @@ setInterval(() => {
 	}
 }, 60000);
 
+// In profileController.js
 export const createOrUpdateProfile = async (req, res) => {
 	try {
-		// Check for user authentication
+		// **Step 1: Authenticate the User**
 		if (!req.user || !req.user.id) {
 			return res.status(401).json({ message: 'Unauthorized' });
 		}
 		const userId = req.user.id;
 
-		// Extract data from request body
-		const {
-			tagline,
-			industry,
-			location,
-			size,
-			bio,
-			phone,
-			email,
-			website,
-			github,
-			carousel,
-			courses,
-			jobDescriptions,
-			jobPostVisibility,
-			publishedRoles, // e.g., { regular: true, course_creator: false, company: false }
-		} = req.body;
+		// **Step 2: Parse Incoming Data**
+		const profileDataJson = req.body.profileData
+			? JSON.parse(req.body.profileData)
+			: {};
+		const { carousel, courses, jobDescriptions } = req.body;
 
-		// Extract uploaded files
+		// **Step 3: Extract Uploaded Files**
 		const avatarFile = req.files?.avatarUrl ? req.files.avatarUrl[0] : null;
 		const backgroundFile = req.files?.backgroundUrl
 			? req.files.backgroundUrl[0]
@@ -57,87 +46,75 @@ export const createOrUpdateProfile = async (req, res) => {
 			: [];
 		const cvFile = req.files?.cv ? req.files.cv[0] : null;
 
-		// Fetch existing profile and user
+		// **Step 4: Fetch Existing Profile and User**
 		const existingProfile = await Profile.findOne({ userId });
 		const user = await mongoose.model('User').findById(userId);
 		if (!user) {
 			return res.status(404).json({ message: 'User not found' });
 		}
 
-		// Build profile data object, merging with existing data if present
-		const profileData = {
-			userId,
-			tagline: tagline || (existingProfile ? existingProfile.tagline : ''),
-			industry: industry || (existingProfile ? existingProfile.industry : ''),
-			location: location || (existingProfile ? existingProfile.location : ''),
-			size: size || (existingProfile ? existingProfile.size : ''),
-			bio: bio || (existingProfile ? existingProfile.bio : ''),
-			phone: phone || (existingProfile ? existingProfile.phone : ''),
-			email: email || (existingProfile ? existingProfile.email : ''),
-			website: website || (existingProfile ? existingProfile.website : ''),
-			github: github || (existingProfile ? existingProfile.github : ''),
-			jobPostVisibility:
-				jobPostVisibility !== undefined
-					? jobPostVisibility === 'true'
-					: existingProfile
-					? existingProfile.jobPostVisibility
-					: true,
-			publishedRoles: publishedRoles
-				? JSON.parse(publishedRoles)
-				: existingProfile
-				? existingProfile.publishedRoles
-				: { regular: false, course_creator: false, company: false },
-		};
+		// **Step 5: Prepare Update Operations**
+		const setData = {};
+		const unsetData = {};
 
-		// Handle avatar upload
+		// **Step 6: Process Profile Fields from profileDataJson**
+		for (const [key, value] of Object.entries(profileDataJson)) {
+			if (value === null) {
+				unsetData[key] = '';
+			} else if (value !== undefined) {
+				setData[key] = value;
+			}
+		}
+
+		// **Step 7: Handle Avatar**
 		if (avatarFile) {
 			const processedAvatar = await processImage(avatarFile.buffer);
 			if (!processedAvatar) throw new Error('Failed to process avatar');
-			profileData.avatar = {
+			setData.avatar = {
 				data: processedAvatar,
 				contentType: avatarFile.mimetype,
 			};
-			imageCache.delete(`avatar:${userId}`); // Clear cache (assumes imageCache exists)
-		} else if (existingProfile?.avatar) {
-			profileData.avatar = existingProfile.avatar;
+			imageCache.delete(`avatar:${userId}`);
+		} else if (profileDataJson.removeAvatar === true) {
+			unsetData.avatar = '';
+			imageCache.delete(`avatar:${userId}`);
 		}
 
-		// Handle background upload
+		// **Step 8: Handle Background**
 		if (backgroundFile) {
 			const processedBg = await processImage(backgroundFile.buffer);
 			if (!processedBg) throw new Error('Failed to process background');
-			profileData.background = {
+			setData.background = {
 				data: processedBg,
 				contentType: backgroundFile.mimetype,
 			};
 			imageCache.delete(`background:${userId}`);
-		} else if (existingProfile?.background) {
-			profileData.background = existingProfile.background;
+		} else if (profileDataJson.removeBackground === true) {
+			unsetData.background = '';
+			imageCache.delete(`background:${userId}`);
 		}
 
-		// Handle CV upload
+		// **Step 9: Handle CV**
 		if (cvFile) {
-			profileData.cv = {
+			setData.cv = {
 				data: cvFile.buffer,
 				contentType: cvFile.mimetype,
 				fileName: cvFile.originalname,
 			};
-		} else if (existingProfile?.cv) {
-			profileData.cv = existingProfile.cv;
+		} else if (profileDataJson.cvUrl === null) {
+			unsetData.cv = '';
 		}
 
-		// Handle carousel data
+		// **Step 10: Handle Carousel**
 		const carouselData = carousel ? JSON.parse(carousel) : [];
 		const processedCarousel = [];
 		let carouselFileIndex = 0;
-
 		for (const item of carouselData) {
 			const newItem = {
 				category: item.category || '',
 				title: item.title || '',
 				content: item.content || '',
 			};
-
 			if (item._id && existingProfile) {
 				const existingItem = existingProfile.carousel.find(
 					(existing) => existing._id.toString() === item._id
@@ -165,10 +142,6 @@ export const createOrUpdateProfile = async (req, res) => {
 				const processedImage = await processImage(
 					carouselFiles[carouselFileIndex].buffer
 				);
-				if (!processedImage)
-					throw new Error(
-						`Failed to process carousel image ${carouselFileIndex}`
-					);
 				newItem.image = {
 					data: processedImage,
 					contentType: carouselFiles[carouselFileIndex].mimetype,
@@ -177,13 +150,12 @@ export const createOrUpdateProfile = async (req, res) => {
 			}
 			processedCarousel.push(newItem);
 		}
-		profileData.carousel = processedCarousel;
+		setData.carousel = processedCarousel;
 
-		// Handle courses data
+		// **Step 11: Handle Courses**
 		const coursesData = courses ? JSON.parse(courses) : [];
 		const processedCourses = [];
 		let courseFileIndex = 0;
-
 		for (const course of coursesData) {
 			const newCourse = {
 				title: course.title || '',
@@ -204,7 +176,6 @@ export const createOrUpdateProfile = async (req, res) => {
 							: null),
 				},
 			};
-
 			if (course._id && existingProfile) {
 				const existingCourse = existingProfile.courses.find(
 					(c) => c._id.toString() === course._id
@@ -233,10 +204,6 @@ export const createOrUpdateProfile = async (req, res) => {
 				const processedThumbnail = await processImage(
 					courseThumbnailFiles[courseFileIndex].buffer
 				);
-				if (!processedThumbnail)
-					throw new Error(
-						`Failed to process course thumbnail ${courseFileIndex}`
-					);
 				newCourse.thumbnail = {
 					data: processedThumbnail,
 					contentType: courseThumbnailFiles[courseFileIndex].mimetype,
@@ -245,13 +212,13 @@ export const createOrUpdateProfile = async (req, res) => {
 			}
 			processedCourses.push(newCourse);
 		}
-		profileData.courses = processedCourses;
+		setData.courses = processedCourses;
 
-		// Handle job descriptions
+		// **Step 12: Handle Job Descriptions**
 		const jobDescriptionsData = jobDescriptions
 			? JSON.parse(jobDescriptions)
 			: [];
-		profileData.jobDescriptions = existingProfile?.jobDescriptions || [];
+		setData.jobDescriptions = existingProfile?.jobDescriptions || [];
 		for (const job of jobDescriptionsData) {
 			const existingJob =
 				job._id && existingProfile
@@ -298,28 +265,31 @@ export const createOrUpdateProfile = async (req, res) => {
 					job.roleType || (existingJob ? existingJob.roleType : 'regular'),
 			};
 			if (existingJob) {
-				const index = profileData.jobDescriptions.findIndex(
+				const index = setData.jobDescriptions.findIndex(
 					(j) => j._id.toString() === job._id
 				);
-				profileData.jobDescriptions[index] = jobData;
+				setData.jobDescriptions[index] = jobData;
 			} else {
-				profileData.jobDescriptions.push(jobData);
+				setData.jobDescriptions.push(jobData);
 			}
 		}
 
-		// Save or update the profile in the database
+		// **Step 13: Perform the Update**
+		const updateQuery = {};
+		if (Object.keys(setData).length > 0) updateQuery.$set = setData;
+		if (Object.keys(unsetData).length > 0) updateQuery.$unset = unsetData;
+
 		let updatedProfile;
 		if (existingProfile) {
-			updatedProfile = await Profile.findOneAndUpdate(
-				{ userId },
-				{ $set: profileData },
-				{ new: true, runValidators: true }
-			);
+			updatedProfile = await Profile.findOneAndUpdate({ userId }, updateQuery, {
+				new: true,
+				runValidators: true,
+			});
 		} else {
-			updatedProfile = await new Profile(profileData).save();
+			updatedProfile = await new Profile({ userId, ...setData }).save();
 		}
 
-		// Construct response with media URLs
+		// **Step 14: Construct Response**
 		const baseUrl = `${req.protocol}://${req.get('host')}/profile`;
 		const timestamp = updatedProfile.updatedAt.getTime();
 		const responseProfile = {
@@ -357,7 +327,7 @@ export const createOrUpdateProfile = async (req, res) => {
 			publishedRoles: updatedProfile.publishedRoles,
 		};
 
-		// Send response
+		// **Step 15: Send Response**
 		return res.status(200).json({
 			message: existingProfile
 				? 'Profile updated successfully'
