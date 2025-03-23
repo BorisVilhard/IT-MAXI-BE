@@ -877,3 +877,100 @@ export const getCV = async (req, res) => {
 			.json({ message: 'Server error', error: error.message });
 	}
 };
+
+// In profileController.js
+
+export const createJobDescription = async (req, res) => {
+	try {
+		const userId = req.user.id; // Extracted from JWT by verifyJWT middleware
+		const jobData = req.body;
+
+		const profile = await Profile.findOne({ userId });
+		if (!profile) {
+			return res.status(404).json({ message: 'Profile not found' });
+		}
+
+		const newJob = {
+			...jobData,
+			userId,
+			datePosted: new Date(),
+			author: {
+				username: req.user.username || 'Unknown',
+				avatarUrl: profile.avatar
+					? `${req.protocol}://${req.get('host')}/profile/${userId}/avatar`
+					: null,
+			},
+		};
+
+		profile.jobDescriptions.push(newJob);
+		await profile.save();
+
+		const savedJob =
+			profile.jobDescriptions[profile.jobDescriptions.length - 1];
+		res.status(201).json({ message: 'Job created', job: savedJob });
+	} catch (error) {
+		console.error('Error in createJobDescription:', error);
+		res.status(500).json({ message: 'Server error', error: error.message });
+	}
+};
+
+export const updateJobDescription = async (req, res) => {
+	try {
+		const userId = req.user.id;
+		const { jobId } = req.params;
+		const jobData = req.body;
+
+		const profile = await Profile.findOne({ userId });
+		if (!profile) {
+			return res.status(404).json({ message: 'Profile not found' });
+		}
+
+		const jobIndex = profile.jobDescriptions.findIndex(
+			(j) => j._id.toString() === jobId
+		);
+		if (jobIndex === -1) {
+			return res.status(404).json({ message: 'Job not found' });
+		}
+
+		profile.jobDescriptions[jobIndex] = {
+			...profile.jobDescriptions[jobIndex].toObject(),
+			...jobData,
+		};
+		await profile.save();
+
+		res.status(200).json({
+			message: 'Job updated',
+			job: profile.jobDescriptions[jobIndex],
+		});
+	} catch (error) {
+		console.error('Error in updateJobDescription:', error);
+		res.status(500).json({ message: 'Server error', error: error.message });
+	}
+};
+
+export const deleteJobDescription = async (req, res) => {
+	try {
+		const userId = req.user.id;
+		const { jobId } = req.params;
+
+		const profile = await Profile.findOne({ userId });
+		if (!profile) {
+			return res.status(404).json({ message: 'Profile not found' });
+		}
+
+		const jobIndex = profile.jobDescriptions.findIndex(
+			(j) => j._id.toString() === jobId
+		);
+		if (jobIndex === -1) {
+			return res.status(404).json({ message: 'Job not found' });
+		}
+
+		profile.jobDescriptions.splice(jobIndex, 1);
+		await profile.save();
+
+		res.status(200).json({ message: 'Job deleted' });
+	} catch (error) {
+		console.error('Error in deleteJobDescription:', error);
+		res.status(500).json({ message: 'Server error', error: error.message });
+	}
+};
