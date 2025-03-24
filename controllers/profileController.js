@@ -16,7 +16,6 @@ setInterval(() => {
 	}
 }, 60000);
 
-// In profileController.js
 export const createOrUpdateProfile = async (req, res) => {
 	try {
 		// **Step 1: Authenticate the User**
@@ -29,6 +28,7 @@ export const createOrUpdateProfile = async (req, res) => {
 		const profileDataJson = req.body.profileData
 			? JSON.parse(req.body.profileData)
 			: {};
+		// carousel, courses, and jobDescriptions are sent as JSON strings in the body
 		const { carousel, courses, jobDescriptions } = req.body;
 
 		// **Step 3: Extract Uploaded Files**
@@ -151,67 +151,72 @@ export const createOrUpdateProfile = async (req, res) => {
 		setData.carousel = processedCarousel;
 
 		// **Step 11: Handle Courses (Updated)**
-		const coursesData = courses ? JSON.parse(courses) : [];
-		const processedCourses = [];
-		let courseFileIndex = 0;
-		for (const course of coursesData) {
-			const newCourse = {
-				title: course.title || '',
-				description: course.description || '',
-				linkToVideo: course.url || '',
-				tags: course.tags || [],
-				price: {
-					amount: course.priceAmount || 0,
-					currency: course.priceCurrency || 'EUR',
-				},
-				websiteLink: course.websiteLink || '',
-				author: {
-					id: userId.toString(), // Added to include the author's user ID
-					username: course.author?.username || user.username || 'Unknown',
-					avatarUrl:
-						course.author?.avatarUrl ||
-						(existingProfile?.avatar
-							? `${req.protocol}://${req.get('host')}/profile/${userId}/avatar`
-							: null),
-				},
-			};
-			if (course._id && existingProfile) {
-				const existingCourse = existingProfile.courses.find(
-					(c) => c._id.toString() === course._id
-				);
-				if (existingCourse) {
-					newCourse._id = existingCourse._id;
-					newCourse.thumbnail =
-						course.thumbnail === 'new_file' &&
-						courseFileIndex < courseThumbnailFiles.length
-							? {
-									data: await processImage(
-										courseThumbnailFiles[courseFileIndex].buffer
-									),
-									contentType: courseThumbnailFiles[courseFileIndex].mimetype,
-							  }
-							: existingCourse.thumbnail;
-					if (course.thumbnail === 'new_file') {
-						imageCache.delete(`course:${userId}:${existingCourse._id}`);
-						courseFileIndex++;
-					}
-				}
-			} else if (
-				course.thumbnail === 'new_file' &&
-				courseFileIndex < courseThumbnailFiles.length
-			) {
-				const processedThumbnail = await processImage(
-					courseThumbnailFiles[courseFileIndex].buffer
-				);
-				newCourse.thumbnail = {
-					data: processedThumbnail,
-					contentType: courseThumbnailFiles[courseFileIndex].mimetype,
+		// Only update courses if courses data is provided in the request
+		if (courses !== undefined) {
+			const coursesData = JSON.parse(courses);
+			const processedCourses = [];
+			let courseFileIndex = 0;
+			for (const course of coursesData) {
+				const newCourse = {
+					title: course.title || '',
+					description: course.description || '',
+					linkToVideo: course.url || '',
+					tags: course.tags || [],
+					price: {
+						amount: course.priceAmount || 0,
+						currency: course.priceCurrency || 'EUR',
+					},
+					websiteLink: course.websiteLink || '',
+					author: {
+						id: userId.toString(), // Include the author's user ID
+						username: course.author?.username || user.username || 'Unknown',
+						avatarUrl:
+							course.author?.avatarUrl ||
+							(existingProfile?.avatar
+								? `${req.protocol}://${req.get(
+										'host'
+								  )}/profile/${userId}/avatar`
+								: null),
+					},
 				};
-				courseFileIndex++;
+				if (course._id && existingProfile) {
+					const existingCourse = existingProfile.courses.find(
+						(c) => c._id.toString() === course._id
+					);
+					if (existingCourse) {
+						newCourse._id = existingCourse._id;
+						newCourse.thumbnail =
+							course.thumbnail === 'new_file' &&
+							courseFileIndex < courseThumbnailFiles.length
+								? {
+										data: await processImage(
+											courseThumbnailFiles[courseFileIndex].buffer
+										),
+										contentType: courseThumbnailFiles[courseFileIndex].mimetype,
+								  }
+								: existingCourse.thumbnail;
+						if (course.thumbnail === 'new_file') {
+							imageCache.delete(`course:${userId}:${existingCourse._id}`);
+							courseFileIndex++;
+						}
+					}
+				} else if (
+					course.thumbnail === 'new_file' &&
+					courseFileIndex < courseThumbnailFiles.length
+				) {
+					const processedThumbnail = await processImage(
+						courseThumbnailFiles[courseFileIndex].buffer
+					);
+					newCourse.thumbnail = {
+						data: processedThumbnail,
+						contentType: courseThumbnailFiles[courseFileIndex].mimetype,
+					};
+					courseFileIndex++;
+				}
+				processedCourses.push(newCourse);
 			}
-			processedCourses.push(newCourse);
+			setData.courses = processedCourses;
 		}
-		setData.courses = processedCourses;
 
 		// **Step 12: Handle Job Descriptions**
 		const jobDescriptionsData = jobDescriptions
@@ -288,7 +293,7 @@ export const createOrUpdateProfile = async (req, res) => {
 			updatedProfile = await new Profile({ userId, ...setData }).save();
 		}
 
-		// **Step 14: Construct Response (Updated)**
+		// **Step 14: Construct Response**
 		const baseUrl = `${req.protocol}://${req.get('host')}/profile`;
 		const timestamp = updatedProfile.updatedAt.getTime();
 		const responseProfile = {
@@ -312,7 +317,7 @@ export const createOrUpdateProfile = async (req, res) => {
 					? `${baseUrl}/${userId}/courses/${course._id}/thumbnail?v=${timestamp}`
 					: null,
 				author: {
-					id: course.author?.id || userId.toString(), // Added to include the author's user ID with fallback
+					id: course.author?.id || userId.toString(),
 					username: course.author?.username || 'Unknown',
 					avatarUrl: course.author?.avatarUrl || null,
 				},
