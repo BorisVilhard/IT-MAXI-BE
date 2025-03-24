@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 
 const authorSchema = new mongoose.Schema({
+	id: { type: String },
 	username: { type: String, required: true },
 	avatarUrl: { type: String },
 });

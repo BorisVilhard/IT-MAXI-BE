@@ -2,8 +2,6 @@ import Profile from '../model/Profile.js';
 import Interaction from '../model/Interaction.js';
 import { processImage } from '../utils/imageProcessor.js';
 import mongoose from 'mongoose';
-import fs from 'fs/promises';
-import path from 'path';
 
 // Simple in-memory cache
 const imageCache = new Map(); // Key: string (e.g., "avatar:userId"), Value: { data, contentType, timestamp }
@@ -152,7 +150,7 @@ export const createOrUpdateProfile = async (req, res) => {
 		}
 		setData.carousel = processedCarousel;
 
-		// **Step 11: Handle Courses**
+		// **Step 11: Handle Courses (Updated)**
 		const coursesData = courses ? JSON.parse(courses) : [];
 		const processedCourses = [];
 		let courseFileIndex = 0;
@@ -168,6 +166,7 @@ export const createOrUpdateProfile = async (req, res) => {
 				},
 				websiteLink: course.websiteLink || '',
 				author: {
+					id: userId.toString(), // Added to include the author's user ID
 					username: course.author?.username || user.username || 'Unknown',
 					avatarUrl:
 						course.author?.avatarUrl ||
@@ -289,7 +288,7 @@ export const createOrUpdateProfile = async (req, res) => {
 			updatedProfile = await new Profile({ userId, ...setData }).save();
 		}
 
-		// **Step 14: Construct Response**
+		// **Step 14: Construct Response (Updated)**
 		const baseUrl = `${req.protocol}://${req.get('host')}/profile`;
 		const timestamp = updatedProfile.updatedAt.getTime();
 		const responseProfile = {
@@ -313,6 +312,7 @@ export const createOrUpdateProfile = async (req, res) => {
 					? `${baseUrl}/${userId}/courses/${course._id}/thumbnail?v=${timestamp}`
 					: null,
 				author: {
+					id: course.author?.id || userId.toString(), // Added to include the author's user ID with fallback
 					username: course.author?.username || 'Unknown',
 					avatarUrl: course.author?.avatarUrl || null,
 				},
@@ -344,27 +344,29 @@ export const createOrUpdateProfile = async (req, res) => {
 
 export const getProfile = async (req, res) => {
 	try {
+		// Extract userId from request parameters
 		const { userId } = req.params;
 
-		// Fetch the profile and populate userId with username
+		// Fetch the profile from the database, populate username, and exclude binary data
 		const profile = await Profile.findOne({ userId })
-			.populate('userId', 'username') // Populate username from User model
+			.populate('userId', 'username') // Populate username from the User model
 			.select(
 				'-cv.data -avatar.data -background.data -carousel.image.data -courses.thumbnail.data'
 			);
 
+		// Check if profile exists
 		if (!profile) {
 			return res.status(404).json({ message: 'Profile not found' });
 		}
 
-		// Construct base URL for media files
+		// Construct base URL for media files using request protocol and host
 		const baseUrl = `${req.protocol}://${req.get('host')}/profile`;
-		const timestamp = profile.updatedAt.getTime();
+		const timestamp = profile.updatedAt.getTime(); // Cache-busting timestamp
 
-		// Build the profileData object, including the username
+		// Build the profileData object with all necessary fields
 		const profileData = {
-			...profile.toObject(),
-			username: profile.userId.username, // Username from User model
+			...profile.toObject(), // Convert Mongoose document to plain object
+			username: profile.userId.username, // Add populated username
 			avatarUrl: profile.avatar
 				? `${baseUrl}/${userId}/avatar?v=${timestamp}`
 				: null,
@@ -385,6 +387,7 @@ export const getProfile = async (req, res) => {
 					? `${baseUrl}/${userId}/courses/${course._id}/thumbnail?v=${timestamp}`
 					: null,
 				author: {
+					id: course.author?.id || userId, // Include author ID, default to userId
 					username: course.author?.username || 'Unknown',
 					avatarUrl: course.author?.avatarUrl || null,
 				},
@@ -392,15 +395,17 @@ export const getProfile = async (req, res) => {
 			jobDescriptions: profile.jobDescriptions.map((job) => ({
 				...job.toObject(),
 				author: {
+					id: job.author?.id || userId, // Include author ID, default to userId
 					username: job.author?.username || 'Unknown',
 					avatarUrl: job.author?.avatarUrl || null,
 				},
 			})),
 		};
 
-		// Send the response
+		// Send successful response with profile data
 		res.status(200).json(profileData);
 	} catch (error) {
+		// Log error and send a 500 response with error details
 		console.error('Error in getProfile:', error);
 		res.status(500).json({ message: 'Server error', error: error.message });
 	}
@@ -644,14 +649,17 @@ export const getJobsByRoleType = async (req, res) => {
 
 export const getAllCourses = async (req, res) => {
 	try {
+		// Parse pagination parameters from query string, defaulting to page 1 and limit 10
 		const page = parseInt(req.query.page) || 1;
 		const limit = parseInt(req.query.limit) || 10;
 		const skip = (page - 1) * limit;
 
-		const profiles = await Profile.find({})
+		// Fetch profiles that have at least one course and populate userId with username
+		const profiles = await Profile.find({ 'courses.0': { $exists: true } })
 			.populate('userId', 'username')
 			.lean();
 
+		// Transform profiles into a flat list of course objects
 		const allCourses = profiles.flatMap((profile) => {
 			const profileUserId =
 				profile.userId?._id?.toString() || profile.userId.toString();
@@ -672,8 +680,9 @@ export const getAllCourses = async (req, res) => {
 				},
 				websiteLink: course.websiteLink || '',
 				author: {
+					id: course.author?.id || profile.userId._id.toString(),
 					username:
-						course.author?.username || profile.userId?.username || 'Unknown',
+						course.author?.username || profile.userId.username || 'Unknown',
 					avatarUrl:
 						course.author?.avatarUrl ||
 						(profile.avatar
@@ -687,9 +696,11 @@ export const getAllCourses = async (req, res) => {
 			}));
 		});
 
+		// Calculate pagination details
 		const total = allCourses.length;
 		const paginatedCourses = allCourses.slice(skip, skip + limit);
 
+		// Send response with paginated courses and metadata
 		res.status(200).json({
 			courses: paginatedCourses,
 			total,
@@ -698,10 +709,7 @@ export const getAllCourses = async (req, res) => {
 		});
 	} catch (error) {
 		console.error('Error in getAllCourses:', error);
-		res.status(500).json({
-			message: 'Server error',
-			error: error.message,
-		});
+		res.status(500).json({ message: 'Server error', error: error.message });
 	}
 };
 
