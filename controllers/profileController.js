@@ -764,22 +764,15 @@ export const createInteraction = async (req, res) => {
 
 export const getInteractions = async (req, res) => {
 	try {
-		// Check if req.user is defined (set by authentication middleware)
-		if (!req.user) {
+		// Ensure that the user is authenticated
+		if (!req.user || !req.user.id) {
 			return res
 				.status(401)
 				.json({ message: 'Unauthorized: No user data found' });
 		}
-
-		// Safely access userId from req.user
 		const userId = req.user.id;
-		if (!userId) {
-			return res
-				.status(401)
-				.json({ message: 'Unauthorized: User ID is missing' });
-		}
 
-		// Fetch interactions where the user is either the sender or recipient
+		// Get all interactions where the logged-in user is the sender or recipient
 		const interactions = await Interaction.find({
 			$or: [{ senderId: userId }, { recipientId: userId }],
 		})
@@ -787,23 +780,27 @@ export const getInteractions = async (req, res) => {
 			.populate('recipientId', 'username email')
 			.lean();
 
-		// Manually fetch job details and profile for avatar
+		// If there are no interactions, return an empty array (status 200)
+		if (!interactions || interactions.length === 0) {
+			return res.status(200).json({ interactions: [] });
+		}
+
+		// Process and format each interaction
 		const formattedInteractions = await Promise.all(
 			interactions.map(async (interaction) => {
-				// Find the Profile containing the jobId in its jobDescriptions array
-				const profile = await Profile.findOne({
+				let job = null;
+				// Look for a Profile that has the job corresponding to interaction.jobId.
+				// If not found, we simply leave job as null.
+				const jobProfile = await Profile.findOne({
 					'jobDescriptions._id': interaction.jobId,
 				}).lean();
-
-				// Extract the specific job subdocument
-				let job = null;
-				if (profile) {
-					job = profile.jobDescriptions.find(
+				if (jobProfile) {
+					job = jobProfile.jobDescriptions.find(
 						(j) => j._id.toString() === interaction.jobId.toString()
 					);
 				}
 
-				// Fetch sender's profile for avatar
+				// Find the sender's profile for avatar data.
 				const senderProfile = await Profile.findOne({
 					userId: interaction.senderId._id,
 				}).lean();
@@ -812,9 +809,9 @@ export const getInteractions = async (req, res) => {
 						? `${req.protocol}://${req.get('host')}/profile/${
 								interaction.senderId._id
 						  }/avatar`
-						: '/default-avatar.png'; // Default avatar if not found
+						: '/default-avatar.png';
 
-				// Fetch recipient's profile for avatar
+				// Find the recipient's profile for avatar data.
 				const recipientProfile = await Profile.findOne({
 					userId: interaction.recipientId._id,
 				}).lean();
@@ -823,40 +820,30 @@ export const getInteractions = async (req, res) => {
 						? `${req.protocol}://${req.get('host')}/profile/${
 								interaction.recipientId._id
 						  }/avatar`
-						: '/default-avatar.png'; // Default avatar if not found
+						: '/default-avatar.png';
 
-				// Format sender and recipient with avatar URLs
-				const sender = interaction.senderId
-					? {
-							id: interaction.senderId._id.toString(),
-							username: interaction.senderId.username,
-							email: interaction.senderId.email,
-							avatarURL: senderAvatarURL,
-					  }
-					: null;
-
-				const recipient = interaction.recipientId
-					? {
-							id: interaction.recipientId._id.toString(),
-							username: interaction.recipientId.username,
-							email: interaction.recipientId.email,
-							avatarURL: recipientAvatarURL,
-					  }
-					: null;
-
-				// Return formatted interaction
 				return {
 					id: interaction._id.toString(),
 					job: job
 						? {
 								id: job._id.toString(),
 								position: job.position,
-								company: job.company,
-								description: job.description,
+								company: job.company || '',
+								description: job.description || '',
 						  }
 						: null,
-					sender,
-					recipient,
+					sender: {
+						id: interaction.senderId._id.toString(),
+						username: interaction.senderId.username,
+						email: interaction.senderId.email,
+						avatarURL: senderAvatarURL,
+					},
+					recipient: {
+						id: interaction.recipientId._id.toString(),
+						username: interaction.recipientId.username,
+						email: interaction.recipientId.email,
+						avatarURL: recipientAvatarURL,
+					},
 					message: interaction.message,
 					timestamp: interaction.timestamp,
 					status: interaction.status,
@@ -865,10 +852,12 @@ export const getInteractions = async (req, res) => {
 		);
 
 		// Return the formatted interactions
-		res.status(200).json({ interactions: formattedInteractions });
+		return res.status(200).json({ interactions: formattedInteractions });
 	} catch (error) {
 		console.error('Error in getInteractions:', error);
-		res.status(500).json({ message: 'Server error', error: error.message });
+		return res
+			.status(500)
+			.json({ message: 'Server error', error: error.message });
 	}
 };
 

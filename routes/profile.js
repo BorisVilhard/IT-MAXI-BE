@@ -27,24 +27,23 @@ const upload = multer({ storage: multer.memoryStorage() }).fields([
 	{ name: 'courseThumbnails', maxCount: 10 },
 ]);
 
-// Public routes (no JWT required)
-router.get('/job-descriptions/:roleType', getJobsByRoleType);
-router.get('/courses', getAllCourses);
-router.get('/:userId', getProfile);
-router.get('/:userId/avatar', getAvatar);
-router.get('/:userId/background', getBackground);
-router.get('/:userId/carousel/:carouselId/image', getCarouselImage);
-router.get('/:userId/courses/:courseId/thumbnail', getCourseThumbnail);
-
 // Protected routes (JWT required)
 router.post('/', verifyJWT, upload, createOrUpdateProfile);
 router.post('/interactions', verifyJWT, createInteraction);
 router.get('/interactions', verifyJWT, getInteractions);
 router.get('/:userId/cv', verifyJWT, getCV);
-
-// New protected routes for job descriptions
 router.post('/jobs', verifyJWT, createJobDescription);
 router.put('/jobs/:jobId', verifyJWT, updateJobDescription);
 router.delete('/jobs/:jobId', verifyJWT, deleteJobDescription);
+
+// Public routes (no JWT required)
+// Place routes with dynamic parameters AFTER specific routes to avoid route matching conflicts
+router.get('/job-descriptions/:roleType', getJobsByRoleType);
+router.get('/courses', getAllCourses);
+router.get('/:userId/avatar', getAvatar);
+router.get('/:userId/background', getBackground);
+router.get('/:userId/carousel/:carouselId/image', getCarouselImage);
+router.get('/:userId/courses/:courseId/thumbnail', getCourseThumbnail);
+router.get('/:userId', getProfile);
 
 export default router;
