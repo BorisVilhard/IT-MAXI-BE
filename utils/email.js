@@ -10,7 +10,7 @@ export const sendResetCodeEmail = async (toEmail, resetCode) => {
 		service: 'Gmail',
 		auth: {
 			user: 'borisvilhard.7@gmail.com',
-			pass: 'sukq zntg utbs kzsd',
+			pass: 'kify jour uijj ooif',
 		},
 	});
 

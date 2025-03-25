@@ -40,13 +40,15 @@ export const forgotPassword = async (req, res) => {
 	}
 };
 
-// Handle Verify Reset Code
 export const verifyResetCode = async (req, res) => {
-	const { email, code } = req.body;
-
+	let { email, code } = req.body;
 	if (!email || !code) {
 		return res.status(400).json({ message: 'Email and code are required.' });
 	}
+
+	// Normalize input: trim and convert email to lowercase
+	email = email.trim().toLowerCase();
+	code = code.trim();
 
 	try {
 		const user = await User.findOne({ email }).exec();
@@ -57,8 +59,15 @@ export const verifyResetCode = async (req, res) => {
 				.json({ message: 'No user found with that email address.' });
 		}
 
-		// Check if reset code exists and matches
-		if (!user.resetCode || user.resetCode !== code) {
+		// Check if reset code exists
+		if (!user.resetCode) {
+			return res
+				.status(400)
+				.json({ message: 'No reset code found for this user.' });
+		}
+
+		// Compare the stored reset code to the code provided (both as strings)
+		if (String(user.resetCode).trim() !== code) {
 			return res.status(400).json({ message: 'Invalid verification code.' });
 		}
 
@@ -69,7 +78,7 @@ export const verifyResetCode = async (req, res) => {
 				.json({ message: 'Verification code has expired.' });
 		}
 
-		// If all checks pass
+		// If all checks pass, return a success message.
 		res.json({ message: 'Verification successful.' });
 	} catch (error) {
 		console.error('Error in verifyResetCode:', error);

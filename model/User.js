@@ -25,6 +25,9 @@ const userSchema = new Schema(
 			token_type: { type: String },
 			expiry_date: { type: Number },
 		},
+		// Fields added for the forgot-password flow
+		resetCode: { type: String, default: null },
+		resetCodeExpiration: { type: Number, default: null },
 	},
 	{ timestamps: true }
 );

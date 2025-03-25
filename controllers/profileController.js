@@ -987,3 +987,56 @@ export const deleteJobDescription = async (req, res) => {
 		res.status(500).json({ message: 'Server error', error: error.message });
 	}
 };
+
+export const getCourseById = async (req, res) => {
+	try {
+		const { courseId } = req.params; // Extract courseId from the URL
+		// Find a profile containing a course with the given ID
+		const profile = await Profile.findOne({ 'courses._id': courseId }).lean();
+
+		if (!profile) {
+			return res.status(404).json({ message: 'Course not found' });
+		}
+
+		// Find the specific course within the profile's courses array
+		const course = profile.courses.find((c) => c._id.toString() === courseId);
+		if (!course) {
+			return res.status(404).json({ message: 'Course not found' });
+		}
+
+		// Construct the response, mirroring the structure of getAllCourses
+		const baseUrl = `${req.protocol}://${req.get('host')}/profile`;
+		const timestamp = profile.updatedAt.getTime();
+		const courseData = {
+			_id: course._id.toString(),
+			title: course.title,
+			description: course.description || '',
+			linkToVideo: course.linkToVideo || '',
+			tags: course.tags || [],
+			thumbnailUrl: course.thumbnail
+				? `${baseUrl}/${profile.userId}/courses/${course._id}/thumbnail?v=${timestamp}`
+				: null,
+			price: {
+				amount: course.price.amount,
+				currency: course.price.currency,
+			},
+			websiteLink: course.websiteLink || '',
+			author: {
+				id: course.author?.id || profile.userId.toString(),
+				username: course.author?.username || 'Unknown',
+				avatarUrl:
+					course.author?.avatarUrl ||
+					(profile.avatar
+						? `${baseUrl}/${profile.userId}/avatar?v=${timestamp}`
+						: null),
+			},
+			createdAt: course.createdAt,
+			updatedAt: course.updatedAt,
+		};
+
+		res.status(200).json(courseData);
+	} catch (error) {
+		console.error('Error in getCourseById:', error);
+		res.status(500).json({ message: 'Server error', error: error.message });
+	}
+};

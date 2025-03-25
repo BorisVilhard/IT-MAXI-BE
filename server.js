@@ -1,41 +1,35 @@
-import dotenv from 'dotenv';
-dotenv.config();
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
-import { corsOptions } from './config/corsOptions.js';
-import { logger } from './middleware/logEvents.js';
-import errorHandler from './middleware/errorHandler.js';
-import verifyJWT from './middleware/verifyJWT.js';
-import credentials from './middleware/credentials.js';
-
-// Import database connection
-import connectDB from './config/dbConn.js';
-
-// Import route handlers
-import rootRoutes from './routes/root.js';
-import registerRoutes from './routes/register.js';
-import refreshRoutes from './routes/refresh.js';
-import logoutRoutes from './routes/logout.js';
-import userRoutes from './api/users.js';
-import authRoutes from './routes/auth.js';
-import profileRoutes from './routes/profile.js';
-import listRoute from './routes/list.js';
-
-// Import necessary modules
+// server.js
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
 import bodyParser from 'body-parser';
+import { corsOptions } from './config/corsOptions.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import verifyJWT from './middleware/verifyJWT.js';
 
-// Initialize Express app and HTTP server
+import { logger } from './middleware/logEvents.js';
+import errorHandler from './middleware/errorHandler.js';
+import credentials from './middleware/credentials.js';
+import connectDB from './config/dbConn.js';
+
+// Import route handlers
+import authRoutes from './routes/auth.js';
+import usersRoutes from './api/users.js';
+import rootRoutes from './routes/root.js';
+import registerRoutes from './routes/register.js';
+import refreshRoutes from './routes/refresh.js';
+import logoutRoutes from './routes/logout.js';
+import listRoute from './routes/list.js';
+import profileRoutes from './routes/profile.js';
+
 const app = express();
 const server = http.createServer(app);
 
 // Resolve __dirname for ES modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-
 // Connect to MongoDB
 connectDB();
 
@@ -43,26 +37,25 @@ connectDB();
 app.use(logger); // Custom logging middleware
 app.use(credentials); // Handle credentials before CORS
 app.use(cors(corsOptions)); // CORS middleware with predefined options
-app.use(bodyParser.json()); // Parse JSON request bodies
-app.use(bodyParser.urlencoded({ extended: true })); // Parse URL-encoded bodies
-app.use(express.urlencoded({ extended: false })); // Additional URL-encoded parser
-app.use(express.json()); // Parse JSON bodies
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: false }));
+app.use(express.json());
 
 // Serve static files (e.g., for uploads)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Public routes (no JWT required)
 app.use('/', rootRoutes);
-app.use('/auth', authRoutes);
+app.use('/auth', authRoutes); // Updated to point to public auth routes
 app.use('/register', registerRoutes);
 app.use('/refresh', refreshRoutes);
 app.use('/logout', logoutRoutes);
 app.use('/list', listRoute);
-// Protected routes (require JWT verification)
-app.use('/users', verifyJWT, userRoutes); // JWT applied only to /users
+app.use('/profile', profileRoutes); // If public or custom protected inside
 
-// Profile routes (mix of public and protected, handled in profile.js)
-app.use('/profile', profileRoutes); // No global JWT here
+// Protected routes (JWT required)
+app.use('/users', usersRoutes);
 
 // Root test endpoint
 app.get('/', (req, res) => {

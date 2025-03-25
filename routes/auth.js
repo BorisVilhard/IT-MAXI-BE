@@ -1,17 +1,19 @@
 // routes/authRoutes.js
 import express from 'express';
+import { google } from 'googleapis';
 import handleLogin from '../controllers/authController.js';
 import { handleGoogleAuth } from '../controllers/googleAuthController.js';
-import { google } from 'googleapis';
 import { saveTokens, getTokens } from '../tokenStore.js';
+import {
+	forgotPassword,
+	verifyResetCode,
+	resetPassword,
+} from '../controllers/forgotPassController.js';
 
 const router = express.Router();
 
-// POST /auth/ - login endpoint
+// POST /auth/ - Login endpoint
 router.post('/', handleLogin);
-
-// GET /auth/refresh-token - refresh token endpoint
-// router.get('/refresh-token', handleRefreshToken);
 
 // POST /auth/google - Google authentication (sign-up/login)
 router.post('/google', handleGoogleAuth);
@@ -19,7 +21,7 @@ router.post('/google', handleGoogleAuth);
 /**
  * POST /auth/exchange-code
  * Expects a JSON body with { code, userId }.
- * Exchanges the provided auth code for tokens and saves them to MongoDB.
+ * Exchanges the provided auth code for tokens and saves them.
  */
 router.post('/exchange-code', async (req, res) => {
 	const { code, userId } = req.body;
@@ -81,5 +83,26 @@ router.get('/current-token', async (req, res) => {
 		return res.status(500).json({ error: 'Error retrieving current token' });
 	}
 });
+
+/**
+ * POST /auth/forgot-password
+ * Expects a JSON body with { email }.
+ * Sends a reset code to the provided email.
+ */
+router.post('/forgot-password', forgotPassword);
+
+/**
+ * POST /auth/verify-code
+ * Expects a JSON body with { email, code }.
+ * Verifies the reset code.
+ */
+router.post('/verify-code', verifyResetCode);
+
+/**
+ * POST /auth/reset-password
+ * Expects a JSON body with { email, code, newPassword }.
+ * Resets the user's password.
+ */
+router.post('/reset-password', resetPassword);
 
 export default router;
