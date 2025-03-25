@@ -720,42 +720,47 @@ export const getAllCourses = async (req, res) => {
 
 export const createInteraction = async (req, res) => {
 	try {
-		const { jobId, message } = req.body;
+		const { jobId, message, senderRole } = req.body;
+
+		// Validate senderRole
+		if (!['company', 'regular', 'course_creator'].includes(senderRole)) {
+			return res.status(400).json({ message: 'Invalid sender role' });
+		}
+
 		const senderId = req.user.id;
 
+		// Find the profile that contains the job
 		const profile = await Profile.findOne({ 'jobDescriptions._id': jobId });
 		if (!profile) {
 			return res.status(404).json({ message: 'Job post not found' });
 		}
-
 		const job = profile.jobDescriptions.id(jobId);
 		if (!job) {
 			return res.status(404).json({ message: 'Job post not found' });
 		}
 
 		const recipientId = profile.userId;
-
 		const sender = await mongoose.model('User').findById(senderId);
 		const recipient = await mongoose.model('User').findById(recipientId);
 		if (!sender || !recipient) {
 			return res.status(404).json({ message: 'User not found' });
 		}
 
-		const senderRole = sender.roles[0];
-		const recipientRole = recipient.roles[0];
-
+		// Create the interaction including senderRole
 		const interaction = new Interaction({
 			jobId,
 			senderId,
 			recipientId,
 			message,
+			senderRole,
 		});
 
 		await interaction.save();
 
-		res
-			.status(201)
-			.json({ message: 'Interaction created successfully', interaction });
+		res.status(201).json({
+			message: 'Interaction created successfully',
+			interaction,
+		});
 	} catch (error) {
 		console.error('Error in createInteraction:', error);
 		res.status(500).json({ message: 'Server error', error: error.message });
@@ -764,7 +769,6 @@ export const createInteraction = async (req, res) => {
 
 export const getInteractions = async (req, res) => {
 	try {
-		// Ensure that the user is authenticated
 		if (!req.user || !req.user.id) {
 			return res
 				.status(401)
@@ -772,7 +776,6 @@ export const getInteractions = async (req, res) => {
 		}
 		const userId = req.user.id;
 
-		// Get all interactions where the logged-in user is the sender or recipient
 		const interactions = await Interaction.find({
 			$or: [{ senderId: userId }, { recipientId: userId }],
 		})
@@ -780,17 +783,13 @@ export const getInteractions = async (req, res) => {
 			.populate('recipientId', 'username email')
 			.lean();
 
-		// If there are no interactions, return an empty array (status 200)
 		if (!interactions || interactions.length === 0) {
 			return res.status(200).json({ interactions: [] });
 		}
 
-		// Process and format each interaction
 		const formattedInteractions = await Promise.all(
 			interactions.map(async (interaction) => {
 				let job = null;
-				// Look for a Profile that has the job corresponding to interaction.jobId.
-				// If not found, we simply leave job as null.
 				const jobProfile = await Profile.findOne({
 					'jobDescriptions._id': interaction.jobId,
 				}).lean();
@@ -800,7 +799,7 @@ export const getInteractions = async (req, res) => {
 					);
 				}
 
-				// Find the sender's profile for avatar data.
+				// Fetch sender's profile to get avatar and extra data
 				const senderProfile = await Profile.findOne({
 					userId: interaction.senderId._id,
 				}).lean();
@@ -810,8 +809,21 @@ export const getInteractions = async (req, res) => {
 								interaction.senderId._id
 						  }/avatar`
 						: '/default-avatar.png';
+				const senderAdditional = senderProfile
+					? {
+							phone: senderProfile.phone || '',
+							email: senderProfile.email || '',
+							website: senderProfile.website || '',
+							github: senderProfile.github || '',
+							cvUrl: senderProfile.cv
+								? `${req.protocol}://${req.get('host')}/profile/${
+										interaction.senderId._id
+								  }/cv`
+								: '',
+					  }
+					: {};
 
-				// Find the recipient's profile for avatar data.
+				// Fetch recipient's profile for avatar
 				const recipientProfile = await Profile.findOne({
 					userId: interaction.recipientId._id,
 				}).lean();
@@ -837,6 +849,8 @@ export const getInteractions = async (req, res) => {
 						username: interaction.senderId.username,
 						email: interaction.senderId.email,
 						avatarURL: senderAvatarURL,
+						senderRole: interaction.senderRole,
+						...senderAdditional,
 					},
 					recipient: {
 						id: interaction.recipientId._id.toString(),
@@ -851,7 +865,6 @@ export const getInteractions = async (req, res) => {
 			})
 		);
 
-		// Return the formatted interactions
 		return res.status(200).json({ interactions: formattedInteractions });
 	} catch (error) {
 		console.error('Error in getInteractions:', error);
@@ -860,7 +873,6 @@ export const getInteractions = async (req, res) => {
 			.json({ message: 'Server error', error: error.message });
 	}
 };
-
 export const getCV = async (req, res) => {
 	try {
 		const { userId } = req.params;

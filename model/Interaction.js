@@ -22,6 +22,11 @@ const interactionSchema = new mongoose.Schema({
 		enum: ['pending', 'accepted', 'rejected'],
 		default: 'pending',
 	},
+	senderRole: {
+		type: String,
+		enum: ['company', 'regular', 'course_creator'],
+		required: true,
+	},
 });
 
 export default mongoose.model('Interaction', interactionSchema);
