@@ -718,55 +718,6 @@ export const getAllCourses = async (req, res) => {
 	}
 };
 
-export const createInteraction = async (req, res) => {
-	try {
-		const { jobId, message, senderRole } = req.body;
-
-		// Validate senderRole
-		if (!['company', 'regular', 'course_creator'].includes(senderRole)) {
-			return res.status(400).json({ message: 'Invalid sender role' });
-		}
-
-		const senderId = req.user.id;
-
-		// Find the profile that contains the job
-		const profile = await Profile.findOne({ 'jobDescriptions._id': jobId });
-		if (!profile) {
-			return res.status(404).json({ message: 'Job post not found' });
-		}
-		const job = profile.jobDescriptions.id(jobId);
-		if (!job) {
-			return res.status(404).json({ message: 'Job post not found' });
-		}
-
-		const recipientId = profile.userId;
-		const sender = await mongoose.model('User').findById(senderId);
-		const recipient = await mongoose.model('User').findById(recipientId);
-		if (!sender || !recipient) {
-			return res.status(404).json({ message: 'User not found' });
-		}
-
-		// Create the interaction including senderRole
-		const interaction = new Interaction({
-			jobId,
-			senderId,
-			recipientId,
-			message,
-			senderRole,
-		});
-
-		await interaction.save();
-
-		res.status(201).json({
-			message: 'Interaction created successfully',
-			interaction,
-		});
-	} catch (error) {
-		console.error('Error in createInteraction:', error);
-		res.status(500).json({ message: 'Server error', error: error.message });
-	}
-};
-
 export const getInteractions = async (req, res) => {
 	try {
 		if (!req.user || !req.user.id) {
@@ -789,14 +740,25 @@ export const getInteractions = async (req, res) => {
 
 		const formattedInteractions = await Promise.all(
 			interactions.map(async (interaction) => {
-				let job = null;
+				let post = null;
+				// First try to find the post in jobDescriptions
 				const jobProfile = await Profile.findOne({
 					'jobDescriptions._id': interaction.jobId,
 				}).lean();
 				if (jobProfile) {
-					job = jobProfile.jobDescriptions.find(
+					post = jobProfile.jobDescriptions.find(
 						(j) => j._id.toString() === interaction.jobId.toString()
 					);
+				} else {
+					// If not found, try to find it in courses
+					const courseProfile = await Profile.findOne({
+						'courses._id': interaction.jobId,
+					}).lean();
+					if (courseProfile) {
+						post = courseProfile.courses.find(
+							(c) => c._id.toString() === interaction.jobId.toString()
+						);
+					}
 				}
 
 				// Fetch sender's profile to get avatar and extra data
@@ -834,16 +796,21 @@ export const getInteractions = async (req, res) => {
 						  }/avatar`
 						: '/default-avatar.png';
 
+				// Format the post object.
+				// For job posts, use job.position; for courses, use course.title.
+				const postData = post
+					? {
+							id: post._id.toString(),
+							// If "position" exists, it’s a job post; otherwise, use "title" from a course.
+							position: post.position ? post.position : post.title,
+							company: post.company || '',
+							description: post.description || '',
+					  }
+					: null;
+
 				return {
 					id: interaction._id.toString(),
-					job: job
-						? {
-								id: job._id.toString(),
-								position: job.position,
-								company: job.company || '',
-								description: job.description || '',
-						  }
-						: null,
+					job: postData,
 					sender: {
 						id: interaction.senderId._id.toString(),
 						username: interaction.senderId.username,
@@ -861,6 +828,7 @@ export const getInteractions = async (req, res) => {
 					message: interaction.message,
 					timestamp: interaction.timestamp,
 					status: interaction.status,
+					isFavorite: interaction.isFavorite, // Including isFavorite
 				};
 			})
 		);
@@ -873,6 +841,7 @@ export const getInteractions = async (req, res) => {
 			.json({ message: 'Server error', error: error.message });
 	}
 };
+
 export const getCV = async (req, res) => {
 	try {
 		const { userId } = req.params;
@@ -1039,5 +1008,122 @@ export const getCourseById = async (req, res) => {
 	} catch (error) {
 		console.error('Error in getCourseById:', error);
 		res.status(500).json({ message: 'Server error', error: error.message });
+	}
+};
+
+// profileController.js
+export const updateInteraction = async (req, res) => {
+	try {
+		const { interactionId } = req.params;
+		const { status, isFavorite } = req.body;
+		const userId = req.user.id;
+
+		// Build the update object with only the provided fields
+		const updateData = {};
+		if (status) updateData.status = status;
+		if (typeof isFavorite === 'boolean') updateData.isFavorite = isFavorite;
+
+		// Update the interaction and return the result as a plain object
+		const updatedInteraction = await Interaction.findOneAndUpdate(
+			{ _id: interactionId, recipientId: userId }, // Ensure the user is authorized
+			{ $set: updateData }, // Update only specified fields
+			{ new: true } // Return the updated document
+		).lean(); // Avoid Mongoose validation
+
+		// Check if the interaction exists and the user is authorized
+		if (!updatedInteraction) {
+			return res
+				.status(404)
+				.json({ message: 'Interaction not found or not authorized' });
+		}
+
+		// Send the successful response
+		res.status(200).json({
+			message: 'Interaction updated',
+			interaction: updatedInteraction,
+		});
+	} catch (error) {
+		console.error('Error in updateInteraction:', error);
+		res.status(500).json({ message: 'Server error', error: error.message });
+	}
+};
+
+export const deleteInteraction = async (req, res) => {
+	try {
+		const { interactionId } = req.params;
+		const userId = req.user.id;
+
+		const interaction = await Interaction.findById(interactionId);
+		if (!interaction) {
+			return res.status(404).json({ message: 'Interaction not found' });
+		}
+		if (interaction.recipientId.toString() !== userId) {
+			return res.status(403).json({ message: 'Not authorized' });
+		}
+
+		await interaction.deleteOne();
+		res.status(200).json({ message: 'Interaction deleted' });
+	} catch (error) {
+		console.error('Error in deleteInteraction:', error);
+		res.status(500).json({ message: 'Server error', error: error.message });
+	}
+};
+
+export const createInteraction = async (req, res) => {
+	try {
+		// Extract fields from the request body:
+		const { jobId, courseId, message, senderRole } = req.body;
+		const senderId = req.user.id; // Assuming user ID comes from authentication middleware
+
+		// Check for missing required fields. Accept either jobId OR courseId.
+		if ((!jobId && !courseId) || !message || !senderRole) {
+			return res.status(400).json({
+				message:
+					'Missing required fields: jobId/courseId, message, or senderRole',
+			});
+		}
+
+		// Validate senderRole
+		const validRoles = ['company', 'regular', 'course_creator'];
+		if (!validRoles.includes(senderRole)) {
+			return res.status(400).json({ message: 'Invalid sender role' });
+		}
+
+		// Find the recipient based on the provided post id.
+		let profile;
+		if (jobId) {
+			profile = await Profile.findOne({ 'jobDescriptions._id': jobId });
+			if (!profile) {
+				return res.status(404).json({ message: 'Job post not found' });
+			}
+		} else {
+			profile = await Profile.findOne({ 'courses._id': courseId });
+			if (!profile) {
+				return res.status(404).json({ message: 'Course post not found' });
+			}
+		}
+
+		const recipientId = profile.userId; // The user who owns the post
+		const postId = jobId ? jobId : courseId;
+
+		// Create the interaction
+		const interaction = new Interaction({
+			// For backward compatibility, store the id in the "jobId" field.
+			jobId: postId,
+			senderId,
+			recipientId,
+			message,
+			senderRole,
+		});
+
+		await interaction.save();
+		return res
+			.status(201)
+			.json({ message: 'Interaction created', interaction });
+	} catch (error) {
+		console.error('Error in createInteraction:', error);
+		return res
+			.status(500)
+			.json({ message: 'Server error', error: error.message });
 	}
 };

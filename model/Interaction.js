@@ -1,3 +1,4 @@
+// interactionSchema.js
 import mongoose from 'mongoose';
 
 const interactionSchema = new mongoose.Schema({
@@ -27,6 +28,7 @@ const interactionSchema = new mongoose.Schema({
 		enum: ['company', 'regular', 'course_creator'],
 		required: true,
 	},
+	isFavorite: { type: Boolean, default: false }, // New field for favorites
 });
 
 export default mongoose.model('Interaction', interactionSchema);

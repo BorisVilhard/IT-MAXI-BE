@@ -14,6 +14,9 @@ import {
 	deleteJobDescription,
 	getJobsByRoleType,
 	getAllCourses,
+	getAllJobDescriptions,
+	deleteInteraction,
+	updateInteraction,
 } from '../controllers/profileController.js';
 import verifyJWT from '../middleware/verifyJWT.js';
 import multer from 'multer';
@@ -29,8 +32,10 @@ const upload = multer({ storage: multer.memoryStorage() }).fields([
 
 // Protected routes (JWT required)
 router.post('/', verifyJWT, upload, createOrUpdateProfile);
-router.post('/interactions', verifyJWT, createInteraction);
 router.get('/interactions', verifyJWT, getInteractions);
+router.put('/interactions/:interactionId', verifyJWT, updateInteraction);
+router.delete('/interactions/:interactionId', verifyJWT, deleteInteraction);
+router.post('/interactions', verifyJWT, createInteraction);
 router.get('/:userId/cv', verifyJWT, getCV);
 router.post('/jobs', verifyJWT, createJobDescription);
 router.put('/jobs/:jobId', verifyJWT, updateJobDescription);
