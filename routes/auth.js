@@ -1,7 +1,9 @@
-// routes/authRoutes.js
 import express from 'express';
 import { google } from 'googleapis';
-import handleLogin from '../controllers/authController.js';
+import {
+	handleLogin,
+	handleRefreshToken,
+} from '../controllers/authController.js';
 import { handleGoogleAuth } from '../controllers/googleAuthController.js';
 import { saveTokens, getTokens } from '../tokenStore.js';
 import {
@@ -12,17 +14,10 @@ import {
 
 const router = express.Router();
 
-// POST /auth/ - Login endpoint
 router.post('/', handleLogin);
 
-// POST /auth/google - Google authentication (sign-up/login)
 router.post('/google', handleGoogleAuth);
 
-/**
- * POST /auth/exchange-code
- * Expects a JSON body with { code, userId }.
- * Exchanges the provided auth code for tokens and saves them.
- */
 router.post('/exchange-code', async (req, res) => {
 	const { code, userId } = req.body;
 	if (!code) return res.status(400).json({ error: 'Missing auth code' });
@@ -35,11 +30,9 @@ router.post('/exchange-code', async (req, res) => {
 			process.env.GOOGLE_REDIRECT_URI
 		);
 
-		// Exchange the code for tokens
 		const { tokens } = await oauth2Client.getToken(code);
 		console.log('Tokens received:', tokens);
 
-		// If no refresh token is provided (common on repeat logins), merge the previously stored one
 		if (!tokens.refresh_token) {
 			const storedTokens = await getTokens(userId);
 			if (storedTokens && storedTokens.refresh_token) {
@@ -48,7 +41,6 @@ router.post('/exchange-code', async (req, res) => {
 			}
 		}
 
-		// Save tokens to MongoDB
 		await saveTokens(userId, tokens);
 		return res
 			.status(200)
@@ -62,11 +54,6 @@ router.post('/exchange-code', async (req, res) => {
 	}
 });
 
-/**
- * GET /auth/current-token
- * Expects a query parameter ?userId=...
- * Retrieves the stored access token for the given user.
- */
 router.get('/current-token', async (req, res) => {
 	const { userId } = req.query;
 	if (!userId) return res.status(400).json({ error: 'Missing user ID' });
@@ -84,25 +71,12 @@ router.get('/current-token', async (req, res) => {
 	}
 });
 
-/**
- * POST /auth/forgot-password
- * Expects a JSON body with { email }.
- * Sends a reset code to the provided email.
- */
+router.get('/refresh-token', handleRefreshToken);
+
 router.post('/forgot-password', forgotPassword);
 
-/**
- * POST /auth/verify-code
- * Expects a JSON body with { email, code }.
- * Verifies the reset code.
- */
 router.post('/verify-code', verifyResetCode);
 
-/**
- * POST /auth/reset-password
- * Expects a JSON body with { email, code, newPassword }.
- * Resets the user's password.
- */
 router.post('/reset-password', resetPassword);
 
 export default router;

@@ -64,7 +64,10 @@ export const createOrUpdateProfile = async (req, res) => {
 			}
 		}
 
-		// **Step 7: Handle Avatar**
+		// Declare variable to hold new avatar URL if one is computed
+		let newAvatarUrl = null;
+
+		// **Step 7: Handle Avatar (with nested author updates)**
 		if (avatarFile) {
 			const processedAvatar = await processImage(avatarFile.buffer);
 			if (!processedAvatar) throw new Error('Failed to process avatar');
@@ -73,6 +76,50 @@ export const createOrUpdateProfile = async (req, res) => {
 				contentType: avatarFile.mimetype,
 			};
 			imageCache.delete(`avatar:${userId}`);
+
+			// Compute the new avatar URL to propagate to nested author fields
+			newAvatarUrl = `${req.protocol}://${req.get(
+				'host'
+			)}/profile/${userId}/avatar?v=${Date.now()}`;
+
+			// Update the primary author field (assuming the first element holds the current user info)
+			setData['author.0.avatarUrl'] = newAvatarUrl;
+
+			// If there are courses, update each course's author field
+			if (
+				existingProfile &&
+				existingProfile.courses &&
+				existingProfile.courses.length > 0
+			) {
+				setData.courses = existingProfile.courses.map((course) => {
+					const courseObj = course.toObject ? course.toObject() : course;
+					return {
+						...courseObj,
+						author: {
+							...courseObj.author,
+							avatarUrl: newAvatarUrl,
+						},
+					};
+				});
+			}
+
+			// Update jobDescriptions' author field similarly
+			if (
+				existingProfile &&
+				existingProfile.jobDescriptions &&
+				existingProfile.jobDescriptions.length > 0
+			) {
+				setData.jobDescriptions = existingProfile.jobDescriptions.map((job) => {
+					const jobObj = job.toObject ? job.toObject() : job;
+					return {
+						...jobObj,
+						author: {
+							...jobObj.author,
+							avatarUrl: newAvatarUrl,
+						},
+					};
+				});
+			}
 		} else if (profileDataJson.removeAvatar === true) {
 			unsetData.avatar = '';
 			imageCache.delete(`avatar:${userId}`);
@@ -150,8 +197,7 @@ export const createOrUpdateProfile = async (req, res) => {
 		}
 		setData.carousel = processedCarousel;
 
-		// **Step 11: Handle Courses (Updated)**
-		// Only update courses if courses data is provided in the request
+		// **Step 11: Handle Courses**
 		if (courses !== undefined) {
 			const coursesData = JSON.parse(courses);
 			const processedCourses = [];
@@ -168,7 +214,7 @@ export const createOrUpdateProfile = async (req, res) => {
 					},
 					websiteLink: course.websiteLink || '',
 					author: {
-						id: userId.toString(), // Include the author's user ID
+						id: userId.toString(),
 						username: course.author?.username || user.username || 'Unknown',
 						avatarUrl:
 							course.author?.avatarUrl ||
@@ -222,6 +268,7 @@ export const createOrUpdateProfile = async (req, res) => {
 		const jobDescriptionsData = jobDescriptions
 			? JSON.parse(jobDescriptions)
 			: [];
+		// If new job descriptions data is provided, start from the existing ones; otherwise, use existingProfile
 		setData.jobDescriptions = existingProfile?.jobDescriptions || [];
 		for (const job of jobDescriptionsData) {
 			const existingJob =
@@ -253,6 +300,7 @@ export const createOrUpdateProfile = async (req, res) => {
 				userId: job.userId || userId,
 				author: {
 					username: job.author?.username || user.username || 'Unknown',
+					// If a new avatar was uploaded, ensure the job author avatar is updated
 					avatarUrl:
 						job.author?.avatarUrl ||
 						(existingProfile?.avatar
@@ -276,6 +324,20 @@ export const createOrUpdateProfile = async (req, res) => {
 			} else {
 				setData.jobDescriptions.push(jobData);
 			}
+		}
+		// If a new avatar was uploaded, ensure all jobDescriptions have the new avatar URL
+		if (
+			newAvatarUrl &&
+			setData.jobDescriptions &&
+			setData.jobDescriptions.length > 0
+		) {
+			setData.jobDescriptions = setData.jobDescriptions.map((job) => ({
+				...job,
+				author: {
+					...job.author,
+					avatarUrl: newAvatarUrl,
+				},
+			}));
 		}
 
 		// **Step 13: Perform the Update**
@@ -325,6 +387,7 @@ export const createOrUpdateProfile = async (req, res) => {
 			jobDescriptions: updatedProfile.jobDescriptions.map((job) => ({
 				...job.toObject(),
 				author: {
+					id: job.author?.id || userId, // Include author ID, default to userId
 					username: job.author?.username || 'Unknown',
 					avatarUrl: job.author?.avatarUrl || null,
 				},
@@ -616,6 +679,7 @@ export const getJobsByRoleType = async (req, res) => {
 			return res.status(400).json({ message: 'Invalid role type' });
 		}
 
+		// Find profiles that have job posts with the given role type
 		const profiles = await Profile.find({
 			jobPostVisibility: true,
 			'jobDescriptions.roleType': roleType,
@@ -623,24 +687,38 @@ export const getJobsByRoleType = async (req, res) => {
 			.populate('userId', 'username')
 			.lean();
 
-		const jobDescriptions = profiles.flatMap((profile) =>
-			profile.jobDescriptions
+		const jobDescriptions = profiles.flatMap((profile) => {
+			// Extract the string ID from the populated userId field
+			const userId =
+				profile.userId && typeof profile.userId === 'object'
+					? profile.userId._id.toString()
+					: profile.userId.toString();
+
+			// Always compute the avatar URL dynamically using the proper userId
+			const computedAvatarUrl = profile.avatar
+				? `${req.protocol}://${req.get(
+						'host'
+				  )}/profile/${userId}/avatar?v=${profile.updatedAt.getTime()}`
+				: '/default-logo.png';
+
+			return profile.jobDescriptions
 				.filter((job) => job.roleType === roleType)
 				.map((job) => ({
 					...job,
 					username: profile.userId?.username || 'Unknown',
 					author: {
 						username: job.author?.username || 'Unknown',
-						avatarUrl: job.author?.avatarUrl || null,
+						// Use the freshly computed avatar URL
+						avatarUrl: computedAvatarUrl,
 					},
 					profileActiveRole: profile.activeRole,
-				}))
-		);
+				}));
+		});
 
 		const total = jobDescriptions.length;
 		const paginatedJobs = jobDescriptions.slice(skip, skip + limit);
 
-		res.status(200).json({
+		return res.status(200).json({
 			jobs: paginatedJobs,
 			total,
 			currentPage: page,
@@ -648,7 +726,9 @@ export const getJobsByRoleType = async (req, res) => {
 		});
 	} catch (error) {
 		console.error('Error in getJobsByRoleType:', error);
-		res.status(500).json({ message: 'Server error', error: error.message });
+		return res
+			.status(500)
+			.json({ message: 'Server error', error: error.message });
 	}
 };
 
@@ -828,7 +908,7 @@ export const getInteractions = async (req, res) => {
 					message: interaction.message,
 					timestamp: interaction.timestamp,
 					status: interaction.status,
-					isFavorite: interaction.isFavorite, // Including isFavorite
+					isFavorite: interaction.isFavorite,
 				};
 			})
 		);
@@ -1011,14 +1091,12 @@ export const getCourseById = async (req, res) => {
 	}
 };
 
-// profileController.js
 export const updateInteraction = async (req, res) => {
 	try {
 		const { interactionId } = req.params;
 		const { status, isFavorite } = req.body;
 		const userId = req.user.id;
 
-		// Build the update object with only the provided fields
 		const updateData = {};
 		if (status) updateData.status = status;
 		if (typeof isFavorite === 'boolean') updateData.isFavorite = isFavorite;

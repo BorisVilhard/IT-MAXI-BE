@@ -2,9 +2,8 @@ import User from '../model/User.js';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 
-const handleLogin = async (req, res) => {
+export const handleLogin = async (req, res) => {
 	try {
-		// Extract email and password from request body
 		const { email, password } = req.body;
 
 		if (!email || !password) {
@@ -15,7 +14,6 @@ const handleLogin = async (req, res) => {
 
 		console.log('Received:', { email, password });
 
-		// Find user by email
 		const foundUser = await User.findOne({ email }).exec();
 		console.log('User found:', foundUser);
 
@@ -23,7 +21,6 @@ const handleLogin = async (req, res) => {
 			return res.status(401).json({ message: 'Invalid email or password' });
 		}
 
-		// Compare provided password with stored hashed password
 		const match = await bcrypt.compare(password, foundUser.password);
 		console.log('Password match:', match);
 
@@ -31,7 +28,6 @@ const handleLogin = async (req, res) => {
 			return res.status(401).json({ message: 'Invalid email or password' });
 		}
 
-		// Generate access token
 		const accessToken = jwt.sign(
 			{
 				UserInfo: {
@@ -44,26 +40,22 @@ const handleLogin = async (req, res) => {
 			{ expiresIn: '1d' }
 		);
 
-		// Generate refresh token
 		const refreshToken = jwt.sign(
 			{ username: foundUser.username },
 			process.env.REFRESH_TOKEN_SECRET,
 			{ expiresIn: '1d' }
 		);
 
-		// Save refresh token to user document
 		foundUser.refreshToken = refreshToken;
 		await foundUser.save();
 
-		// Set refresh token as HTTP-only cookie
 		res.cookie('refreshToken', refreshToken, {
 			httpOnly: true,
 			secure: process.env.NODE_ENV === 'production',
 			sameSite: 'strict',
-			maxAge: 24 * 60 * 60 * 1000, // 1 day
+			maxAge: 24 * 60 * 60 * 1000,
 		});
 
-		// Send response with access token and user details
 		res.status(200).json({
 			id: foundUser._id,
 			username: foundUser.username,
@@ -82,4 +74,43 @@ const handleLogin = async (req, res) => {
 	}
 };
 
-export default handleLogin;
+export const handleRefreshToken = async (req, res) => {
+	const cookies = req.cookies;
+	if (!cookies?.jwt) return res.sendStatus(401);
+
+	const refreshToken = cookies.jwt;
+
+	try {
+		const foundUser = await User.findOne({ refreshToken }).exec();
+		if (!foundUser) return res.sendStatus(403);
+
+		jwt.verify(
+			refreshToken,
+			process.env.REFRESH_TOKEN_SECRET,
+			(err, decoded) => {
+				if (err || foundUser.username !== decoded.username)
+					return res.sendStatus(403);
+
+				const roles = Object.values(foundUser.roles || {});
+
+				const newAccessToken = jwt.sign(
+					{
+						UserInfo: {
+							id: foundUser._id,
+							username: foundUser.username,
+							email: foundUser.email,
+							roles: roles,
+						},
+					},
+					process.env.ACCESS_TOKEN_SECRET,
+					{ expiresIn: '1d' }
+				);
+
+				res.json({ accessToken: newAccessToken });
+			}
+		);
+	} catch (error) {
+		console.error(error);
+		res.status(500).json({ message: 'Internal server error' });
+	}
+};

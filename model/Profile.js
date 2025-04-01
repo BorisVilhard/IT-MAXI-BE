@@ -27,7 +27,6 @@ const jobDescriptionSchema = new mongoose.Schema({
 	author: authorSchema,
 	postActivity: { type: Boolean, default: false },
 	roleType: {
-		// Added roleType field
 		type: String,
 		enum: ['regular', 'company'],
 		required: true,

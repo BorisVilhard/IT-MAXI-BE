@@ -1,4 +1,5 @@
 import User from '../model/User.js';
+import Profile from '../model/Profile.js';
 import bcrypt from 'bcrypt';
 
 export const getAllUsers = async (req, res) => {
@@ -27,10 +28,9 @@ export const getUser = async (req, res) => {
 	}
 };
 
-// Update User
 export const updateUser = async (req, res) => {
 	const { id } = req.params;
-	const { username, email, password } = req.body;
+	const { username, email, password, avatarUrl } = req.body;
 
 	if (!id) return res.status(400).json({ message: 'User ID required' });
 
@@ -48,9 +48,24 @@ export const updateUser = async (req, res) => {
 		user.email = email || user.email;
 
 		await user.save();
+
+		await Profile.updateOne(
+			{ userId: user._id },
+			{
+				$set: {
+					'jobDescriptions.$[].author.username': user.username,
+					'courses.$[].author.username': user.username,
+					'author.0.username': user.username,
+					'jobDescriptions.$[].author.avatarUrl': avatarUrl,
+					'courses.$[].author.avatarUrl': avatarUrl,
+					'author.0.avatarUrl': avatarUrl,
+				},
+			}
+		);
+
 		res.json({
 			message: 'User updated successfully!',
-			user: { username: user.username, email: user.email },
+			user: { _id: user._id, username: user.username, email: user.email },
 		});
 	} catch (error) {
 		console.error('Error updating user:', error);
@@ -58,7 +73,6 @@ export const updateUser = async (req, res) => {
 	}
 };
 
-// Delete User
 export const deleteUser = async (req, res) => {
 	const { id } = req.params;
 	if (!id) {
