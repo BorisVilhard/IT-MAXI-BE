@@ -262,6 +262,12 @@ export const createOrUpdateProfile = async (req, res) => {
 				processedCourses.push(newCourse);
 			}
 			setData.courses = processedCourses;
+
+			// Automatically publish the course_creator role when a course is provided
+			setData.publishedRoles = {
+				...existingProfile?.publishedRoles,
+				course_creator: true,
+			};
 		}
 
 		// **Step 12: Handle Job Descriptions**
@@ -300,7 +306,6 @@ export const createOrUpdateProfile = async (req, res) => {
 				userId: job.userId || userId,
 				author: {
 					username: job.author?.username || user.username || 'Unknown',
-					// If a new avatar was uploaded, ensure the job author avatar is updated
 					avatarUrl:
 						job.author?.avatarUrl ||
 						(existingProfile?.avatar
@@ -387,7 +392,7 @@ export const createOrUpdateProfile = async (req, res) => {
 			jobDescriptions: updatedProfile.jobDescriptions.map((job) => ({
 				...job.toObject(),
 				author: {
-					id: job.author?.id || userId, // Include author ID, default to userId
+					id: job.author?.id || userId,
 					username: job.author?.username || 'Unknown',
 					avatarUrl: job.author?.avatarUrl || null,
 				},
@@ -734,17 +739,13 @@ export const getJobsByRoleType = async (req, res) => {
 
 export const getAllCourses = async (req, res) => {
 	try {
-		// Parse pagination parameters from query string, defaulting to page 1 and limit 10
 		const page = parseInt(req.query.page) || 1;
 		const limit = parseInt(req.query.limit) || 10;
 		const skip = (page - 1) * limit;
-
-		// Fetch profiles that have at least one course and populate userId with username
 		const profiles = await Profile.find({ 'courses.0': { $exists: true } })
 			.populate('userId', 'username')
 			.lean();
 
-		// Transform profiles into a flat list of course objects
 		const allCourses = profiles.flatMap((profile) => {
 			const profileUserId =
 				profile.userId?._id?.toString() || profile.userId.toString();
@@ -781,11 +782,9 @@ export const getAllCourses = async (req, res) => {
 			}));
 		});
 
-		// Calculate pagination details
 		const total = allCourses.length;
 		const paginatedCourses = allCourses.slice(skip, skip + limit);
 
-		// Send response with paginated courses and metadata
 		res.status(200).json({
 			courses: paginatedCourses,
 			total,
@@ -941,11 +940,9 @@ export const getCV = async (req, res) => {
 	}
 };
 
-// In profileController.js
-
 export const createJobDescription = async (req, res) => {
 	try {
-		const userId = req.user.id; // Extracted from JWT by verifyJWT middleware
+		const userId = req.user.id;
 		const jobData = req.body;
 
 		const profile = await Profile.findOne({ userId });
@@ -964,6 +961,12 @@ export const createJobDescription = async (req, res) => {
 					: null,
 			},
 		};
+
+		if (newJob.roleType === 'regular') {
+			profile.publishedRoles.regular = true;
+		} else if (newJob.roleType === 'company') {
+			profile.publishedRoles.company = true;
+		}
 
 		profile.jobDescriptions.push(newJob);
 		await profile.save();
