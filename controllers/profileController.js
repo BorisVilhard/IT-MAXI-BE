@@ -18,20 +18,16 @@ setInterval(() => {
 
 export const createOrUpdateProfile = async (req, res) => {
 	try {
-		// **Step 1: Authenticate the User**
 		if (!req.user || !req.user.id) {
 			return res.status(401).json({ message: 'Unauthorized' });
 		}
 		const userId = req.user.id;
 
-		// **Step 2: Parse Incoming Data**
 		const profileDataJson = req.body.profileData
 			? JSON.parse(req.body.profileData)
 			: {};
-		// carousel, courses, and jobDescriptions are sent as JSON strings in the body
 		const { carousel, courses, jobDescriptions } = req.body;
 
-		// **Step 3: Extract Uploaded Files**
 		const avatarFile = req.files?.avatarUrl ? req.files.avatarUrl[0] : null;
 		const backgroundFile = req.files?.backgroundUrl
 			? req.files.backgroundUrl[0]
@@ -44,18 +40,15 @@ export const createOrUpdateProfile = async (req, res) => {
 			: [];
 		const cvFile = req.files?.cv ? req.files.cv[0] : null;
 
-		// **Step 4: Fetch Existing Profile and User**
 		const existingProfile = await Profile.findOne({ userId });
 		const user = await mongoose.model('User').findById(userId);
 		if (!user) {
 			return res.status(404).json({ message: 'User not found' });
 		}
 
-		// **Step 5: Prepare Update Operations**
 		const setData = {};
 		const unsetData = {};
 
-		// **Step 6: Process Profile Fields from profileDataJson**
 		for (const [key, value] of Object.entries(profileDataJson)) {
 			if (value === null) {
 				unsetData[key] = '';
@@ -64,10 +57,8 @@ export const createOrUpdateProfile = async (req, res) => {
 			}
 		}
 
-		// Declare variable to hold new avatar URL if one is computed
 		let newAvatarUrl = null;
 
-		// **Step 7: Handle Avatar (with nested author updates)**
 		if (avatarFile) {
 			const processedAvatar = await processImage(avatarFile.buffer);
 			if (!processedAvatar) throw new Error('Failed to process avatar');
@@ -76,16 +67,11 @@ export const createOrUpdateProfile = async (req, res) => {
 				contentType: avatarFile.mimetype,
 			};
 			imageCache.delete(`avatar:${userId}`);
-
-			// Compute the new avatar URL to propagate to nested author fields
 			newAvatarUrl = `${req.protocol}://${req.get(
 				'host'
 			)}/profile/${userId}/avatar?v=${Date.now()}`;
-
-			// Update the primary author field (assuming the first element holds the current user info)
 			setData['author.0.avatarUrl'] = newAvatarUrl;
 
-			// If there are courses, update each course's author field
 			if (
 				existingProfile &&
 				existingProfile.courses &&
@@ -95,15 +81,11 @@ export const createOrUpdateProfile = async (req, res) => {
 					const courseObj = course.toObject ? course.toObject() : course;
 					return {
 						...courseObj,
-						author: {
-							...courseObj.author,
-							avatarUrl: newAvatarUrl,
-						},
+						author: { ...courseObj.author, avatarUrl: newAvatarUrl },
 					};
 				});
 			}
 
-			// Update jobDescriptions' author field similarly
 			if (
 				existingProfile &&
 				existingProfile.jobDescriptions &&
@@ -113,10 +95,7 @@ export const createOrUpdateProfile = async (req, res) => {
 					const jobObj = job.toObject ? job.toObject() : job;
 					return {
 						...jobObj,
-						author: {
-							...jobObj.author,
-							avatarUrl: newAvatarUrl,
-						},
+						author: { ...jobObj.author, avatarUrl: newAvatarUrl },
 					};
 				});
 			}
@@ -125,7 +104,6 @@ export const createOrUpdateProfile = async (req, res) => {
 			imageCache.delete(`avatar:${userId}`);
 		}
 
-		// **Step 8: Handle Background**
 		if (backgroundFile) {
 			const processedBg = await processImage(backgroundFile.buffer);
 			if (!processedBg) throw new Error('Failed to process background');
@@ -139,7 +117,6 @@ export const createOrUpdateProfile = async (req, res) => {
 			imageCache.delete(`background:${userId}`);
 		}
 
-		// **Step 9: Handle CV**
 		if (cvFile) {
 			setData.cv = {
 				data: cvFile.buffer,
@@ -150,7 +127,6 @@ export const createOrUpdateProfile = async (req, res) => {
 			unsetData.cv = '';
 		}
 
-		// **Step 10: Handle Carousel**
 		const carouselData = carousel ? JSON.parse(carousel) : [];
 		const processedCarousel = [];
 		let carouselFileIndex = 0;
@@ -197,7 +173,6 @@ export const createOrUpdateProfile = async (req, res) => {
 		}
 		setData.carousel = processedCarousel;
 
-		// **Step 11: Handle Courses**
 		if (courses !== undefined) {
 			const coursesData = JSON.parse(courses);
 			const processedCourses = [];
@@ -262,19 +237,25 @@ export const createOrUpdateProfile = async (req, res) => {
 				processedCourses.push(newCourse);
 			}
 			setData.courses = processedCourses;
-
-			// Automatically publish the course_creator role when a course is provided
-			setData.publishedRoles = {
-				...existingProfile?.publishedRoles,
-				course_creator: true,
-			};
+			// Only set course_creator to true if not explicitly provided in publishedRoles
+			if (
+				!profileDataJson.publishedRoles ||
+				profileDataJson.publishedRoles.course_creator === undefined
+			) {
+				setData.publishedRoles = {
+					...existingProfile?.publishedRoles,
+					course_creator: true,
+				};
+			} else {
+				setData.publishedRoles = profileDataJson.publishedRoles;
+			}
+		} else if (profileDataJson.publishedRoles) {
+			setData.publishedRoles = profileDataJson.publishedRoles; // Respect frontend-provided publishedRoles
 		}
 
-		// **Step 12: Handle Job Descriptions**
 		const jobDescriptionsData = jobDescriptions
 			? JSON.parse(jobDescriptions)
 			: [];
-		// If new job descriptions data is provided, start from the existing ones; otherwise, use existingProfile
 		setData.jobDescriptions = existingProfile?.jobDescriptions || [];
 		for (const job of jobDescriptionsData) {
 			const existingJob =
@@ -330,7 +311,6 @@ export const createOrUpdateProfile = async (req, res) => {
 				setData.jobDescriptions.push(jobData);
 			}
 		}
-		// If a new avatar was uploaded, ensure all jobDescriptions have the new avatar URL
 		if (
 			newAvatarUrl &&
 			setData.jobDescriptions &&
@@ -338,14 +318,10 @@ export const createOrUpdateProfile = async (req, res) => {
 		) {
 			setData.jobDescriptions = setData.jobDescriptions.map((job) => ({
 				...job,
-				author: {
-					...job.author,
-					avatarUrl: newAvatarUrl,
-				},
+				author: { ...job.author, avatarUrl: newAvatarUrl },
 			}));
 		}
 
-		// **Step 13: Perform the Update**
 		const updateQuery = {};
 		if (Object.keys(setData).length > 0) updateQuery.$set = setData;
 		if (Object.keys(unsetData).length > 0) updateQuery.$unset = unsetData;
@@ -360,7 +336,6 @@ export const createOrUpdateProfile = async (req, res) => {
 			updatedProfile = await new Profile({ userId, ...setData }).save();
 		}
 
-		// **Step 14: Construct Response**
 		const baseUrl = `${req.protocol}://${req.get('host')}/profile`;
 		const timestamp = updatedProfile.updatedAt.getTime();
 		const responseProfile = {
@@ -400,7 +375,6 @@ export const createOrUpdateProfile = async (req, res) => {
 			publishedRoles: updatedProfile.publishedRoles,
 		};
 
-		// **Step 15: Send Response**
 		return res.status(200).json({
 			message: existingProfile
 				? 'Profile updated successfully'
@@ -684,22 +658,20 @@ export const getJobsByRoleType = async (req, res) => {
 			return res.status(400).json({ message: 'Invalid role type' });
 		}
 
-		// Find profiles that have job posts with the given role type
 		const profiles = await Profile.find({
 			jobPostVisibility: true,
 			'jobDescriptions.roleType': roleType,
+			[`publishedRoles.${roleType}`]: true, // Filters profiles where the role is published
 		})
 			.populate('userId', 'username')
 			.lean();
 
 		const jobDescriptions = profiles.flatMap((profile) => {
-			// Extract the string ID from the populated userId field
 			const userId =
 				profile.userId && typeof profile.userId === 'object'
 					? profile.userId._id.toString()
 					: profile.userId.toString();
 
-			// Always compute the avatar URL dynamically using the proper userId
 			const computedAvatarUrl = profile.avatar
 				? `${req.protocol}://${req.get(
 						'host'
@@ -713,7 +685,6 @@ export const getJobsByRoleType = async (req, res) => {
 					username: profile.userId?.username || 'Unknown',
 					author: {
 						username: job.author?.username || 'Unknown',
-						// Use the freshly computed avatar URL
 						avatarUrl: computedAvatarUrl,
 					},
 					profileActiveRole: profile.activeRole,
