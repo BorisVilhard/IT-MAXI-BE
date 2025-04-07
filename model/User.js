@@ -25,9 +25,19 @@ const userSchema = new Schema(
 			token_type: { type: String },
 			expiry_date: { type: Number },
 		},
-		// Fields added for the forgot-password flow
 		resetCode: { type: String, default: null },
 		resetCodeExpiration: { type: Number, default: null },
+		stripeCustomerId: { type: String },
+		subscription: {
+			planId: { type: String },
+			role: { type: String, enum: ['regular', 'company'], default: 'regular' },
+			jobLimit: { type: Number, default: 1 },
+			visibilityDays: { type: Number, default: 10 },
+			canTop: { type: Boolean, default: false },
+			topDays: { type: Number, default: 0 },
+			subscriptionId: { type: String },
+			activeUntil: { type: Date },
+		},
 	},
 	{ timestamps: true }
 );
