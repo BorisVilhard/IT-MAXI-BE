@@ -1,5 +1,3 @@
-// backend/utils/email.js
-
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
 
@@ -9,16 +7,16 @@ export const sendResetCodeEmail = async (toEmail, resetCode) => {
 	const transporter = nodemailer.createTransport({
 		service: 'Gmail',
 		auth: {
-			user: 'borisvilhard.7@gmail.com',
-			pass: 'kify jour uijj ooif',
+			user: 'itjobs.official.m@gmail.com',
+			pass: 'ptls lsuh swus ahrc',
 		},
 	});
 
 	const mailOptions = {
-		from: 'borisvilhard.7@gmail.com',
+		from: 'itjobs.official.m@gmail.com',
 		to: toEmail,
-		subject: 'Your Password Reset Code',
-		text: `Your password reset code is: ${resetCode}. It is valid for 10 minutes.`,
+		subject: 'Resetovaci kod od ITJOBS',
+		text: `Resetovací kod: ${resetCode}. Platí len 10 minút`,
 	};
 
 	await transporter.sendMail(mailOptions);
