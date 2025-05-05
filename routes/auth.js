@@ -11,15 +11,13 @@ import {
 	verifyResetCode,
 	resetPassword,
 } from '../controllers/forgotPassController.js';
-import {
-	sendVerificationCode,
-	verifyRegistration,
-} from '../controllers/registerController.js'; // Import new controller functions
 
 const router = express.Router();
 
 router.post('/', handleLogin);
+
 router.post('/google', handleGoogleAuth);
+
 router.post('/exchange-code', async (req, res) => {
 	const { code, userId } = req.body;
 	if (!code) return res.status(400).json({ error: 'Missing auth code' });
@@ -74,12 +72,11 @@ router.get('/current-token', async (req, res) => {
 });
 
 router.get('/refresh-token', handleRefreshToken);
-router.post('/forgot-password', forgotPassword);
-router.post('/verify-code', verifyResetCode);
-router.post('/reset-password', resetPassword);
 
-// New endpoints for registration
-router.post('/send-verification-code', sendVerificationCode);
-router.post('/verify-registration', verifyRegistration);
+router.post('/forgot-password', forgotPassword);
+
+router.post('/verify-code', verifyResetCode);
+
+router.post('/reset-password', resetPassword);
 
 export default router;
