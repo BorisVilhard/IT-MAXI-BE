@@ -17,15 +17,11 @@ export const handleLogin = async (req, res) => {
 		const foundUser = await User.findOne({ email }).exec();
 		console.log('User found:', foundUser);
 
-		if (!foundUser) {
-			return res.status(401).json({ message: 'Invalid email or password' });
-		}
-
 		const match = await bcrypt.compare(password, foundUser.password);
 		console.log('Password match:', match);
 
 		if (!match) {
-			return res.status(401).json({ message: 'Invalid email or password' });
+			return res.status(401).json({ message: 'Zlé heslo alebo email' });
 		}
 
 		const accessToken = jwt.sign(
